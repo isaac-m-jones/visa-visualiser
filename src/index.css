@@ -172,6 +172,23 @@ a {
   max-width: 420px;
 }
 
+.hover-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  font-size: 1.05rem;
+}
+
+.hover-name span {
+  font-size: 1.4rem;
+}
+
+.hover-name strong {
+  font-size: 1.2rem;
+  line-height: 1.1;
+}
+
 .route-rail {
   grid-column: 3 / 4;
   grid-row: 2;

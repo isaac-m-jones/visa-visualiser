@@ -3,24 +3,19 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { getStatusLabel, getStrengthSummary } from "./lib/visa";
 
-const GEO_URL =
-  "https://datahub.io/core/geo-countries/r/data/countries.geojson";
+const GEO_URL = "/countries.geo.json";
 
 const MAP_STYLE = {
   version: 8,
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution: "&copy; OpenStreetMap contributors"
-    }
-  },
+  glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+  sources: {},
   layers: [
     {
-      id: "osm",
-      type: "raster",
-      source: "osm"
+      id: "background",
+      type: "background",
+      paint: {
+        "background-color": "#040915"
+      }
     }
   ]
 };
@@ -70,7 +65,7 @@ function getStatusTone(status) {
   return "rgba(251, 113, 133, 0.82)";
 }
 
-function buildCountryFeatureCollection(countryGeoJson, route, mapColors) {
+function buildCountryFeatureCollection(countryGeoJson, route) {
   return {
     ...countryGeoJson,
     features: countryGeoJson.features.map((feature, index) => {
@@ -82,93 +77,12 @@ function buildCountryFeatureCollection(countryGeoJson, route, mapColors) {
         properties: {
           ...feature.properties,
           countryCode: code,
-          status: mapColors[code] || "",
           isPassport: code === route.passport ? 1 : 0,
           isDeparture: code === route.departure ? 1 : 0,
           isDestination: code === route.destination ? 1 : 0
         }
       };
     })
-  };
-}
-
-function buildRouteGeoJson(route, countriesByCode) {
-  const features = [];
-  const passport = countriesByCode.get(route.passport);
-  const departure = countriesByCode.get(route.departure);
-  const destination = countriesByCode.get(route.destination);
-
-  const points = [
-    passport
-      ? {
-          role: "passport",
-          label: "Passport",
-          coordinates: [passport.latlng[1], passport.latlng[0]]
-        }
-      : null,
-    departure
-      ? {
-          role: "departure",
-          label: "Start",
-          coordinates: [departure.latlng[1], departure.latlng[0]]
-        }
-      : null,
-    destination
-      ? {
-          role: "destination",
-          label: "Destination",
-          coordinates: [destination.latlng[1], destination.latlng[0]]
-        }
-      : null
-  ].filter(Boolean);
-
-  points.forEach((point) => {
-    features.push({
-      type: "Feature",
-      geometry: {
-        type: "Point",
-        coordinates: point.coordinates
-      },
-      properties: {
-        role: point.role,
-        label: point.label
-      }
-    });
-  });
-
-  if (departure?.latlng?.length && destination?.latlng?.length) {
-    features.push({
-      type: "Feature",
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [departure.latlng[1], departure.latlng[0]],
-          [destination.latlng[1], destination.latlng[0]]
-        ]
-      },
-      properties: {
-        kind: "travel"
-      }
-    });
-  } else if (passport?.latlng?.length && destination?.latlng?.length) {
-    features.push({
-      type: "Feature",
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [passport.latlng[1], passport.latlng[0]],
-          [destination.latlng[1], destination.latlng[0]]
-        ]
-      },
-      properties: {
-        kind: "passport-destination"
-      }
-    });
-  }
-
-  return {
-    type: "FeatureCollection",
-    features
   };
 }
 
@@ -186,12 +100,26 @@ function App() {
   const [visaError, setVisaError] = useState("");
   const [recentRoutes, setRecentRoutes] = useState(() => {
     const raw = window.localStorage.getItem("visa-visualiser-recent-routes");
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+
+      return parsed.map((item) => ({
+        passport: item.passport || item.origin || "",
+        departure: item.departure || "",
+        destination: item.destination || "",
+        status: item.status || ""
+      }));
+    } catch {
+      return [];
+    }
   });
 
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
-  const hoveredFeatureIdRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -299,28 +227,28 @@ function App() {
       style: MAP_STYLE,
       center: [18, 18],
       zoom: 1.55,
-      pitch: 28,
-      bearing: -10,
+      pitch: 0,
+      bearing: 0,
       maxZoom: 6,
-      minZoom: 1.2,
-      attributionControl: false
+      minZoom: 1.1,
+      attributionControl: false,
+      dragRotate: true
     });
 
     mapRef.current = map;
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
     map.on("style.load", () => {
       map.setProjection({ type: "globe" });
 
       if (typeof map.setFog === "function") {
         map.setFog({
-          color: "rgb(7, 12, 24)",
+          color: "rgb(6, 10, 20)",
           "high-color": "rgb(24, 70, 123)",
           "space-color": "rgb(2, 6, 18)",
-          "star-intensity": 0.05,
-          horizonBlend: 0.1
+          "star-intensity": 0.06,
+          horizonBlend: 0.08
         });
       }
 
@@ -340,41 +268,39 @@ function App() {
       return;
     }
 
-    const data = buildCountryFeatureCollection(countryGeoJson, route, mapColors);
+    const data = buildCountryFeatureCollection(countryGeoJson, route);
 
     if (!map.getSource("countries")) {
       map.addSource("countries", {
         type: "geojson",
-        data,
-        generateId: true
+        data
       });
 
       map.addLayer({
-        id: "country-fills",
+        id: "country-hit-area",
+        type: "fill",
+        source: "countries",
+        paint: {
+          "fill-color": "rgba(0, 0, 0, 0)",
+          "fill-opacity": 0.01
+        }
+      });
+
+      map.addLayer({
+        id: "country-selected-fill",
         type: "fill",
         source: "countries",
         paint: {
           "fill-color": [
             "case",
             ["==", ["get", "isPassport"], 1],
-            "#60a5fa",
+            "rgba(96, 165, 250, 0.2)",
             ["==", ["get", "isDeparture"], 1],
-            "#fbbf24",
+            "rgba(251, 191, 36, 0.18)",
             ["==", ["get", "isDestination"], 1],
-            "#f87171",
-            ["==", ["get", "status"], "Visa-free"],
-            "rgba(52, 211, 153, 0.62)",
-            [
-              "any",
-              ["==", ["get", "status"], "Visa on arrival"],
-              ["==", ["get", "status"], "eVisa"]
-            ],
-            "rgba(250, 204, 21, 0.58)",
-            ["==", ["get", "status"], "Visa required"],
-            "rgba(251, 113, 133, 0.52)",
-            "rgba(27, 52, 88, 0.25)"
-          ],
-          "fill-outline-color": "rgba(203, 213, 225, 0.08)"
+            "rgba(248, 113, 113, 0.18)",
+            "rgba(0, 0, 0, 0)"
+          ]
         }
       });
 
@@ -383,61 +309,126 @@ function App() {
         type: "line",
         source: "countries",
         paint: {
-          "line-color": [
-            "case",
-            ["boolean", ["feature-state", "hover"], false],
-            "#e0f2fe",
-            "rgba(226, 232, 240, 0.22)"
-          ],
+          "line-color": "rgba(201, 214, 232, 0.5)",
           "line-width": [
-            "case",
-            ["boolean", ["feature-state", "hover"], false],
-            2.2,
-            0.7
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            1,
+            0.5,
+            5,
+            1.4
           ]
         }
       });
 
-      map.on("mousemove", "country-fills", (event) => {
-        const feature = event.features?.[0];
+      map.addLayer({
+        id: "country-selected-outline",
+        type: "line",
+        source: "countries",
+        filter: [
+          "any",
+          ["==", ["get", "isPassport"], 1],
+          ["==", ["get", "isDeparture"], 1],
+          ["==", ["get", "isDestination"], 1]
+        ],
+        paint: {
+          "line-color": [
+            "case",
+            ["==", ["get", "isPassport"], 1],
+            "#60a5fa",
+            ["==", ["get", "isDeparture"], 1],
+            "#fbbf24",
+            "#f87171"
+          ],
+          "line-width": 2.2
+        }
+      });
 
-        if (!feature) {
+      map.addLayer({
+        id: "country-hover-outline",
+        type: "line",
+        source: "countries",
+        filter: ["==", ["get", "countryCode"], ""],
+        paint: {
+          "line-color": "#e0f2fe",
+          "line-width": 2.8
+        }
+      });
+
+      map.addLayer({
+        id: "country-labels",
+        type: "symbol",
+        source: "countries",
+        minzoom: 1.4,
+        layout: {
+          "text-field": ["get", "name"],
+          "text-font": ["Open Sans Regular"],
+          "text-size": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            1.4,
+            9,
+            3,
+            11,
+            5,
+            13
+          ],
+          "text-letter-spacing": 0.03,
+          "text-max-width": 8,
+          "text-allow-overlap": false
+        },
+        paint: {
+          "text-color": "rgba(235, 243, 255, 0.82)",
+          "text-halo-color": "rgba(4, 9, 21, 0.95)",
+          "text-halo-width": 1.2
+        }
+      });
+
+      const syncHoveredCountry = (event) => {
+        const feature = map.queryRenderedFeatures(event.point, {
+          layers: ["country-hit-area"]
+        })[0];
+
+        if (!feature?.properties?.countryCode) {
+          if (map.getLayer("country-hover-outline")) {
+            setHoveredCountryCode("");
+            map.setFilter("country-hover-outline", ["==", ["get", "countryCode"], ""]);
+          }
+
+          map.getCanvas().style.cursor = "";
           return;
         }
 
-        if (hoveredFeatureIdRef.current !== null) {
-          map.setFeatureState(
-            { source: "countries", id: hoveredFeatureIdRef.current },
-            { hover: false }
-          );
-        }
+        const nextCode = feature.properties.countryCode;
+        setHoveredCountryCode((current) => {
+          if (current !== nextCode && map.getLayer("country-hover-outline")) {
+            map.setFilter("country-hover-outline", [
+              "==",
+              ["get", "countryCode"],
+              nextCode
+            ]);
+          }
 
-        hoveredFeatureIdRef.current = feature.id;
-
-        map.setFeatureState(
-          { source: "countries", id: feature.id },
-          { hover: true }
-        );
-
-        setHoveredCountryCode(feature.properties.countryCode);
+          return nextCode;
+        });
         map.getCanvas().style.cursor = "pointer";
-      });
+      };
 
-      map.on("mouseleave", "country-fills", () => {
-        if (hoveredFeatureIdRef.current !== null) {
-          map.setFeatureState(
-            { source: "countries", id: hoveredFeatureIdRef.current },
-            { hover: false }
-          );
-        }
-
-        hoveredFeatureIdRef.current = null;
+      map.on("mousemove", syncHoveredCountry);
+      map.on("mouseout", () => {
         setHoveredCountryCode("");
+        if (map.getLayer("country-hover-outline")) {
+          map.setFilter("country-hover-outline", ["==", ["get", "countryCode"], ""]);
+        }
         map.getCanvas().style.cursor = "";
       });
 
-      map.on("click", "country-fills", (event) => {
-        const feature = event.features?.[0];
+      map.on("click", (event) => {
+        const feature = map.queryRenderedFeatures(event.point, {
+          layers: ["country-hit-area"]
+        })[0];
         const countryCode = feature?.properties?.countryCode;
 
         if (!countryCode) {
@@ -459,61 +450,21 @@ function App() {
     } else {
       map.getSource("countries").setData(data);
     }
-  }, [countryGeoJson, mapColors, mapReady, route]);
+  }, [countryGeoJson, mapReady, route]);
 
   useEffect(() => {
     const map = mapRef.current;
 
-    if (!map || !mapReady) {
+    if (!map || !mapReady || !map.isStyleLoaded() || !map.getLayer("country-hover-outline")) {
       return;
     }
 
-    const routeData = buildRouteGeoJson(route, countriesByCode);
-
-    if (!map.getSource("route-markers")) {
-      map.addSource("route-markers", {
-        type: "geojson",
-        data: routeData
-      });
-
-      map.addLayer({
-        id: "route-lines",
-        type: "line",
-        source: "route-markers",
-        filter: ["==", ["geometry-type"], "LineString"],
-        paint: {
-          "line-color": "rgba(147, 197, 253, 0.92)",
-          "line-width": 3.5,
-          "line-blur": 0.4
-        }
-      });
-
-      map.addLayer({
-        id: "route-points",
-        type: "circle",
-        source: "route-markers",
-        filter: ["==", ["geometry-type"], "Point"],
-        paint: {
-          "circle-radius": 7,
-          "circle-color": [
-            "match",
-            ["get", "role"],
-            "passport",
-            "#60a5fa",
-            "departure",
-            "#fbbf24",
-            "destination",
-            "#f87171",
-            "#e2e8f0"
-          ],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#f8fafc"
-        }
-      });
-    } else {
-      map.getSource("route-markers").setData(routeData);
-    }
-  }, [countriesByCode, mapReady, route]);
+    map.setFilter("country-hover-outline", [
+      "==",
+      ["get", "countryCode"],
+      hoveredCountryCode || ""
+    ]);
+  }, [hoveredCountryCode, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -525,8 +476,8 @@ function App() {
 
     map.flyTo({
       center: [focusCountry.latlng[1], focusCountry.latlng[0]],
-      zoom: destinationCountry ? 3.1 : 2.3,
-      duration: 1200,
+      zoom: destinationCountry ? 3 : 2.2,
+      duration: 1000,
       essential: true
     });
   }, [departureCountry, destinationCountry, passportCountry]);
@@ -702,8 +653,11 @@ function App() {
                 disabled={countriesLoading}
               />
               <datalist id={`${field}-options`}>
-                {countries.map((country) => (
-                  <option key={`${field}-${country.code}`} value={country.name} />
+                {countries.map((country, index) => (
+                  <option
+                    key={`${field}-${country.code || country.name}-${index}`}
+                    value={country.name}
+                  />
                 ))}
               </datalist>
             </label>
@@ -714,9 +668,9 @@ function App() {
           <p className="eyebrow">Map-first workspace</p>
           <h1>Explore visa access on a living globe.</h1>
           <p>
-            Search from the top, then fly the map like a planning desk. Hover any
-            country for the quick brief, and click countries to fill passport, start,
-            then destination in sequence.
+            The map is stripped back to country names and outlines. Hover a country to
+            inspect it, and click countries to fill passport, start, then destination
+            in sequence.
           </p>
         </section>
 
@@ -898,9 +852,9 @@ function App() {
             <p className="panel-kicker">Recent route checks</p>
             {recentRoutes.length ? (
               <div className="recent-routes">
-                {recentRoutes.map((item) => (
+                {recentRoutes.map((item, index) => (
                   <button
-                    key={`${item.passport}-${item.destination}`}
+                    key={`${item.passport || "unknown"}-${item.destination || "unknown"}-${index}`}
                     className="recent-route"
                     onClick={() => {
                       const passport = resolveCountry(item.passport);
@@ -916,8 +870,8 @@ function App() {
                       }
                     }}
                   >
-                    <span>{item.passport}</span>
-                    <span>{item.destination}</span>
+                    <span>{item.passport || "Unknown passport"}</span>
+                    <span>{item.destination || "Unknown destination"}</span>
                     <strong>{item.status}</strong>
                   </button>
                 ))}
