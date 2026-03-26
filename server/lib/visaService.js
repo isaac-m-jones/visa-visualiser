@@ -1,5 +1,8 @@
 import worldCountries from "world-countries";
-import { sampleCountryMetadata, visaMatrix } from "../data/visaData.js";
+import {
+  sampleCountryMetadata,
+  simplifiedRouteMatrix
+} from "../data/visaData.js";
 
 const DATASET_UPDATED_AT = "2026-03-25";
 
@@ -46,15 +49,10 @@ function normalizeLanguages(languages = {}) {
   }));
 }
 
-function buildRouteMeta(matchType, origin, destination) {
+function buildRouteMeta(matchType, origin, destination, confidence) {
   return {
     matchType,
-    confidence:
-      matchType === "matrix"
-        ? "high"
-        : matchType === "preview"
-          ? "medium"
-          : "low",
+    confidence,
     originRegion: origin.region,
     destinationRegion: destination.region,
     originPassportStrength: origin.passportStrength,
@@ -63,27 +61,102 @@ function buildRouteMeta(matchType, origin, destination) {
   };
 }
 
-function buildRequirement(requirement, origin, destination, matchType) {
+function deriveLegacyStatus(routeRecord) {
+  if (routeRecord.tourism.allowed === "yes") {
+    if (routeRecord.tourism.note?.toLowerCase().includes("visa on arrival")) {
+      return "Visa on arrival";
+    }
+
+    if (routeRecord.tourism.note?.toLowerCase().includes("evisa")) {
+      return "eVisa";
+    }
+
+    return "Visa-free";
+  }
+
+  if (routeRecord.tourism.allowed === "no") {
+    return "Visa required";
+  }
+
+  return "Unknown";
+}
+
+function buildRequirement(routeRecord, origin, destination, matchType) {
+  const derivedStatus = deriveLegacyStatus(routeRecord);
+
   return {
-    ...requirement,
-    routeMeta: buildRouteMeta(matchType, origin, destination)
+    status: derivedStatus,
+    duration:
+      routeRecord.tourism.maxStayDays != null
+        ? `${routeRecord.tourism.maxStayDays} days`
+        : routeRecord.tourism.allowed === "yes"
+          ? "Varies"
+          : "Unknown",
+    conditions:
+      routeRecord.tourism.note ||
+      "This simplified dataset only tracks whether a short tourism path exists.",
+    officialSource: routeRecord.sourceUrl,
+    lastUpdated: routeRecord.lastChecked,
+    simplified: {
+      tourism: routeRecord.tourism,
+      study: routeRecord.study,
+      work: routeRecord.work,
+      sourceUrl: routeRecord.sourceUrl,
+      confidence: routeRecord.confidence,
+      lastChecked: routeRecord.lastChecked
+    },
+    routeMeta: buildRouteMeta(
+      matchType,
+      origin,
+      destination,
+      routeRecord.confidence
+    )
   };
 }
 
-function buildFallbackRequirement(origin, destination) {
-  return buildRequirement(
-    {
-      status: "Visa required",
-      duration: "Varies by visa class",
-      conditions:
-        "This sample dataset does not include a specific bilateral rule for the selected route yet, so the app falls back to a conservative visa-required result.",
-      officialSource: "https://www.iata.org/en/services/compliance/timatic/",
-      lastUpdated: "March 25, 2026"
+function buildFallbackRouteRecord(previewStatus) {
+  if (previewStatus === "Visa-free") {
+    return {
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 90,
+        note: "Tourism appears to be available without a standard pre-approved visa in this starter dataset."
+      },
+      study: { pathExists: "unknown" },
+      work: { pathExists: "unknown" },
+      sourceUrl: "https://www.iata.org/en/services/compliance/timatic/",
+      confidence: "medium",
+      lastChecked: DATASET_UPDATED_AT
+    };
+  }
+
+  if (previewStatus === "Visa on arrival" || previewStatus === "eVisa") {
+    return {
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 30,
+        note: "Tourism appears possible via a simplified arrival or online process in this starter dataset."
+      },
+      study: { pathExists: "unknown" },
+      work: { pathExists: "unknown" },
+      sourceUrl: "https://www.iata.org/en/services/compliance/timatic/",
+      confidence: "medium",
+      lastChecked: DATASET_UPDATED_AT
+    };
+  }
+
+  return {
+    tourism: {
+      allowed: "unknown",
+      maxStayDays: null,
+      note: "This starter dataset does not yet have a verified tourism answer for this route."
     },
-    origin,
-    destination,
-    "fallback"
-  );
+    study: { pathExists: "unknown" },
+    work: { pathExists: "unknown" },
+    sourceUrl: "https://www.iata.org/en/services/compliance/timatic/",
+    confidence: "low",
+    lastChecked: DATASET_UPDATED_AT
+  };
 }
 
 const countryCatalog = worldCountries
@@ -133,25 +206,31 @@ export function getVisaRequirement(originCode, destinationCode) {
   }
 
   if (originCode === destinationCode) {
+    const selfRecord = {
+      tourism: {
+        allowed: "yes",
+        maxStayDays: null,
+        note: "Domestic travel does not require a visa."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://www.iata.org/",
+      confidence: "high",
+      lastChecked: DATASET_UPDATED_AT
+    };
+
     return {
       origin,
       destination,
-      requirement: buildRequirement(
-        {
-          status: "Visa-free",
-          duration: "Unlimited",
-          conditions: "Domestic travel does not require a visa.",
-          officialSource: "https://www.iata.org/",
-          lastUpdated: "March 25, 2026"
-        },
-        origin,
-        destination,
-        "self"
-      )
+      requirement: buildRequirement(selfRecord, origin, destination, "self")
     };
   }
 
-  const exactMatch = visaMatrix[originCode]?.[destinationCode];
+  const exactMatch = simplifiedRouteMatrix[originCode]?.[destinationCode];
   if (exactMatch) {
     return {
       origin,
@@ -169,21 +248,7 @@ export function getVisaRequirement(originCode, destinationCode) {
       origin,
       destination,
       requirement: buildRequirement(
-        {
-          status: previewMatch.status,
-          duration:
-            previewMatch.status === "Visa-free"
-              ? "90 days"
-              : previewMatch.status === "Visa required"
-                ? "Varies by visa class"
-                : "30 days",
-          conditions:
-            previewMatch.status === "Visa required"
-              ? "A visa application is typically required before travel. Confirm the correct visa class and processing times with the destination authority."
-              : "Entry may still depend on passport validity, onward travel, proof of funds, and border officer discretion.",
-          officialSource: "https://www.iata.org/en/services/compliance/timatic/",
-          lastUpdated: "March 25, 2026"
-        },
+        buildFallbackRouteRecord(previewMatch.status),
         origin,
         destination,
         "preview"
@@ -194,6 +259,11 @@ export function getVisaRequirement(originCode, destinationCode) {
   return {
     origin,
     destination,
-    requirement: buildFallbackRequirement(origin, destination)
+    requirement: buildRequirement(
+      buildFallbackRouteRecord("unknown"),
+      origin,
+      destination,
+      "fallback"
+    )
   };
 }

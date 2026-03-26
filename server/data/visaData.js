@@ -103,125 +103,232 @@ export const sampleCountryMetadata = [
   }
 ];
 
-export const visaMatrix = {
+export const simplifiedRouteMatrix = {
   NZL: {
     JPN: {
-      status: "Visa-free",
-      duration: "90 days",
-      conditions:
-        "Tourism and short business visits are generally allowed without a visa. Proof of onward travel and sufficient funds may be requested.",
-      officialSource: "https://www.mofa.go.jp/j_info/visit/visa/",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 90,
+        note: "Short tourism and business visits are generally allowed without a visa."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://www.mofa.go.jp/j_info/visit/visa/",
+      confidence: "high",
+      lastChecked: "2026-03-25"
     },
     USA: {
-      status: "eVisa",
-      duration: "90 days",
-      conditions:
-        "Travel typically requires an approved ESTA before boarding under the Visa Waiver Program.",
-      officialSource: "https://travel.state.gov/content/travel/en/us-visas/tourism-visit/visa-waiver-program.html",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 90,
+        note: "Travel generally requires ESTA approval before boarding."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl:
+        "https://travel.state.gov/content/travel/en/us-visas/tourism-visit/visa-waiver-program.html",
+      confidence: "high",
+      lastChecked: "2026-03-25"
     },
     IND: {
-      status: "eVisa",
-      duration: "30 days",
-      conditions:
-        "Eligible travelers can usually apply online for a short-stay eVisa before departure.",
-      officialSource: "https://indianvisaonline.gov.in/",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 30,
+        note: "Short-stay tourism is commonly available via eVisa."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://indianvisaonline.gov.in/",
+      confidence: "medium",
+      lastChecked: "2026-03-25"
     }
   },
   JPN: {
     NZL: {
-      status: "Visa-free",
-      duration: "90 days",
-      conditions:
-        "Short tourist visits are generally visa-free. Border officers can still ask for onward tickets and accommodation details.",
-      officialSource: "https://www.immigration.govt.nz/",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 90,
+        note: "Short tourist visits are generally visa-free."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://www.immigration.govt.nz/",
+      confidence: "high",
+      lastChecked: "2026-03-25"
     },
     BRA: {
-      status: "Visa-free",
-      duration: "90 days",
-      conditions:
-        "Tourism and business entry are commonly visa-free for short stays, subject to current bilateral arrangements.",
-      officialSource: "https://www.gov.br/mre/en",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 90,
+        note: "Tourism and short business entry are commonly visa-free."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://www.gov.br/mre/en",
+      confidence: "medium",
+      lastChecked: "2026-03-25"
     }
   },
   USA: {
     CAN: {
-      status: "Visa-free",
-      duration: "180 days",
-      conditions:
-        "Most short visits do not require a visa, though border agents may request travel details and proof of ties to home.",
-      officialSource: "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada.html",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 180,
+        note: "Most short visits do not require a visa."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl:
+        "https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada.html",
+      confidence: "high",
+      lastChecked: "2026-03-25"
     },
     IND: {
-      status: "eVisa",
-      duration: "30 days",
-      conditions:
-        "Eligible applicants can obtain an eVisa online before travel for limited tourism or business use.",
-      officialSource: "https://indianvisaonline.gov.in/",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 30,
+        note: "Eligible applicants can commonly obtain an eVisa online."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://indianvisaonline.gov.in/",
+      confidence: "medium",
+      lastChecked: "2026-03-25"
     }
   },
   IND: {
     IDN: {
-      status: "Visa on arrival",
-      duration: "30 days",
-      conditions:
-        "Travelers can generally obtain a visa on arrival at designated Indonesian entry points.",
-      officialSource: "https://www.imigrasi.go.id/en/",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 30,
+        note: "Travelers can generally enter on visa on arrival for short tourism."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://www.imigrasi.go.id/en/",
+      confidence: "medium",
+      lastChecked: "2026-03-25"
     },
     THA: {
-      status: "Visa-free",
-      duration: "30 days",
-      conditions:
-        "Tourism entry is typically visa-free for a short stay, depending on current temporary measures and entry method.",
-      officialSource: "https://www.thaievisa.go.th/",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 30,
+        note: "Tourism entry is typically visa-free for a short stay."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://www.thaievisa.go.th/",
+      confidence: "medium",
+      lastChecked: "2026-03-25"
     }
   },
   BRA: {
     EGY: {
-      status: "Visa on arrival",
-      duration: "30 days",
-      conditions:
-        "A visa on arrival may be available at major airports. Entry requirements can differ by airline and route.",
-      officialSource: "https://www.visa2egypt.gov.eg/",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 30,
+        note: "A visa on arrival may be available at major airports."
+      },
+      study: {
+        pathExists: "unknown"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://www.visa2egypt.gov.eg/",
+      confidence: "medium",
+      lastChecked: "2026-03-25"
     }
   },
   NGA: {
     GHA: {
-      status: "Visa-free",
-      duration: "90 days",
-      conditions:
-        "ECOWAS free movement rules usually allow short stays without a visa for member-state citizens.",
-      officialSource: "https://www.ghanaimmigration.org/",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 90,
+        note: "ECOWAS free movement rules usually allow short stays without a visa."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://www.ghanaimmigration.org/",
+      confidence: "medium",
+      lastChecked: "2026-03-25"
     }
   },
   ARE: {
     IND: {
-      status: "Visa-free",
-      duration: "14 days",
-      conditions:
-        "Entry policies can depend on residency, passport validity, and bilateral arrangements. Travelers should verify before booking.",
-      officialSource: "https://www.mofa.gov.ae/en",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 14,
+        note: "Entry policies vary, but short tourism is commonly available."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl: "https://www.mofa.gov.ae/en",
+      confidence: "medium",
+      lastChecked: "2026-03-25"
     }
   },
   DEU: {
     USA: {
-      status: "Visa-free",
-      duration: "90 days",
-      conditions:
-        "Short visits normally travel under the Visa Waiver Program with ESTA approval before departure.",
-      officialSource: "https://travel.state.gov/content/travel/en/us-visas/tourism-visit/visa-waiver-program.html",
-      lastUpdated: "March 25, 2026"
+      tourism: {
+        allowed: "yes",
+        maxStayDays: 90,
+        note: "Short visits typically travel under the Visa Waiver Program with ESTA."
+      },
+      study: {
+        pathExists: "yes"
+      },
+      work: {
+        pathExists: "yes"
+      },
+      sourceUrl:
+        "https://travel.state.gov/content/travel/en/us-visas/tourism-visit/visa-waiver-program.html",
+      confidence: "high",
+      lastChecked: "2026-03-25"
     }
   }
 };

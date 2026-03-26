@@ -7,14 +7,13 @@ const GEO_URL = "/countries.geo.json";
 
 const MAP_STYLE = {
   version: 8,
-  glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   sources: {},
   layers: [
     {
       id: "background",
       type: "background",
       paint: {
-        "background-color": "#040915"
+        "background-color": "#072a0e"//"#07111f"
       }
     }
   ]
@@ -24,10 +23,7 @@ const initialRoute = { passport: "", departure: "", destination: "" };
 const initialInputState = { passport: "", departure: "", destination: "" };
 
 function formatPopulation(value) {
-  return new Intl.NumberFormat("en", {
-    notation: "compact",
-    maximumFractionDigits: 1
-  }).format(value || 0);
+  return new Intl.NumberFormat("en").format(value || 0);
 }
 
 function formatArea(value) {
@@ -35,6 +31,18 @@ function formatArea(value) {
     notation: "compact",
     maximumFractionDigits: 1
   }).format(value || 0)} km²`;
+}
+
+function formatList(values, emptyLabel = "Not listed") {
+  if (!values?.length) {
+    return emptyLabel;
+  }
+
+  return values.join(", ");
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function normalizeCountrySearch(value) {
@@ -63,6 +71,18 @@ function getStatusTone(status) {
   }
 
   return "rgba(251, 113, 133, 0.82)";
+}
+
+function humanizeDecision(value) {
+  if (value === "yes") {
+    return "Yes";
+  }
+
+  if (value === "no") {
+    return "No";
+  }
+
+  return "Unknown";
 }
 
 function buildCountryFeatureCollection(countryGeoJson, route) {
@@ -95,6 +115,7 @@ function App() {
   const [countryGeoJson, setCountryGeoJson] = useState(null);
   const [mapReady, setMapReady] = useState(false);
   const [hoveredCountryCode, setHoveredCountryCode] = useState("");
+  const [pinnedCountryCode, setPinnedCountryCode] = useState("");
   const [visaInfo, setVisaInfo] = useState(null);
   const [visaLoading, setVisaLoading] = useState(false);
   const [visaError, setVisaError] = useState("");
@@ -189,10 +210,29 @@ function App() {
     [countries]
   );
 
+  const supportedPassportCountries = useMemo(
+    () => countries.filter((country) => country.preview?.length),
+    [countries]
+  );
+
+  const supportedPassportsByName = useMemo(
+    () =>
+      new Map(
+        supportedPassportCountries.flatMap((country) => [
+          [normalizeCountrySearch(country.name), country],
+          [normalizeCountrySearch(country.officialName || ""), country],
+          [normalizeCountrySearch(country.code), country]
+        ])
+      ),
+    [supportedPassportCountries]
+  );
+
   const passportCountry = countriesByCode.get(route.passport) || null;
   const departureCountry = countriesByCode.get(route.departure) || null;
   const destinationCountry = countriesByCode.get(route.destination) || null;
   const hoveredCountry = countriesByCode.get(hoveredCountryCode) || null;
+  const pinnedCountry = countriesByCode.get(pinnedCountryCode) || null;
+  const activeCountry = pinnedCountry || hoveredCountry;
 
   const strengthSummary = useMemo(
     () => getStrengthSummary(route.passport, countries),
@@ -236,17 +276,44 @@ function App() {
     });
 
     mapRef.current = map;
+    map.scrollZoom.disable();
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
+
+    const canvasContainer = map.getCanvasContainer();
+    const handleWheel = (event) => {
+      const rect = canvasContainer.getBoundingClientRect();
+      const point = [event.clientX - rect.left, event.clientY - rect.top];
+
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+
+        const nextZoom = clamp(map.getZoom() - event.deltaY * 0.01, 1.1, 6);
+        map.zoomTo(nextZoom, {
+          around: map.unproject(point),
+          duration: 0,
+          essential: true
+        });
+        return;
+      }
+
+      event.preventDefault();
+      map.panBy([-event.deltaX, -event.deltaY], {
+        duration: 0,
+        essential: true
+      });
+    };
+
+    canvasContainer.addEventListener("wheel", handleWheel, { passive: false });
 
     map.on("style.load", () => {
       map.setProjection({ type: "globe" });
 
       if (typeof map.setFog === "function") {
         map.setFog({
-          color: "rgb(6, 10, 20)",
-          "high-color": "rgb(24, 70, 123)",
-          "space-color": "rgb(2, 6, 18)",
+          color: "rgb(8, 14, 26)",
+          "high-color": "rgb(15, 28, 46)",
+          "space-color": "rgb(2, 5, 13)",
           "star-intensity": 0.06,
           horizonBlend: 0.08
         });
@@ -256,6 +323,7 @@ function App() {
     });
 
     return () => {
+      canvasContainer.removeEventListener("wheel", handleWheel);
       map.remove();
       mapRef.current = null;
     };
@@ -286,6 +354,15 @@ function App() {
         }
       });
 
+        map.addLayer({
+          id: "country-base-fill",
+          type: "fill",
+          source: "countries",
+          paint: {
+          "fill-color": "rgba(136, 157, 184, 0.28)"
+          }
+        });
+
       map.addLayer({
         id: "country-selected-fill",
         type: "fill",
@@ -309,7 +386,7 @@ function App() {
         type: "line",
         source: "countries",
         paint: {
-          "line-color": "rgba(201, 214, 232, 0.5)",
+          "line-color": "rgba(214, 226, 242, 0.72)",
           "line-width": [
             "interpolate",
             ["linear"],
@@ -435,13 +512,22 @@ function App() {
           return;
         }
 
+        setPinnedCountryCode(countryCode);
         setRoute((current) => {
-          if (!current.passport) {
-            return { ...current, passport: countryCode };
+          if (current.destination === countryCode) {
+            return { ...current, destination: "" };
+          }
+
+          if (current.departure === countryCode) {
+            return { ...current, departure: "" };
           }
 
           if (!current.departure) {
             return { ...current, departure: countryCode };
+          }
+
+          if (!current.destination) {
+            return { ...current, destination: countryCode };
           }
 
           return { ...current, destination: countryCode };
@@ -483,7 +569,7 @@ function App() {
   }, [departureCountry, destinationCountry, passportCountry]);
 
   useEffect(() => {
-    if (!route.passport || !route.destination) {
+    if (!route.passport || !route.departure || !route.destination) {
       setVisaInfo(null);
       setVisaError("");
       return;
@@ -553,14 +639,17 @@ function App() {
     };
   }, [countriesByCode, route.departure, route.destination, route.passport]);
 
-  const resolveCountry = (rawValue) => {
-    const exactMatch = countriesByName.get(normalizeCountrySearch(rawValue));
+  const resolveCountry = (rawValue, lookup = countriesByName) => {
+    const normalizedValue = normalizeCountrySearch(rawValue);
+    const exactMatch = lookup.get(normalizedValue);
     if (exactMatch) {
       return exactMatch;
     }
 
-    return countries.find((country) =>
-      country.name.toLowerCase().startsWith(normalizeCountrySearch(rawValue))
+    const pool = lookup === countriesByName ? countries : supportedPassportCountries;
+
+    return pool.find((country) =>
+      country.name.toLowerCase().startsWith(normalizedValue)
     );
   };
 
@@ -576,26 +665,51 @@ function App() {
         next.destination = "";
       }
 
+      if (field === "departure" && country.code === current.destination) {
+        next.destination = "";
+      }
+
+      if (field === "destination" && country.code === current.departure) {
+        next.departure = "";
+      }
+
       return next;
     });
+
+    setPinnedCountryCode(country.code);
+  };
+
+  const clearField = (field) => {
+    setRoute((current) => ({
+      ...current,
+      [field]: ""
+    }));
+
+    setInputs((current) => ({
+      ...current,
+      [field]: ""
+    }));
   };
 
   const applyInput = (field) => {
-    const country = resolveCountry(inputs[field]);
+    const country = resolveCountry(
+      inputs[field],
+      field === "passport" ? supportedPassportsByName : countriesByName
+    );
     if (country) {
       updateField(field, country);
     }
   };
 
-  const hoveredStatus = hoveredCountry
-    ? hoveredCountry.code === route.passport
+  const activeStatus = activeCountry
+    ? activeCountry.code === route.passport
       ? "Passport selected"
-      : hoveredCountry.code === route.departure
+      : activeCountry.code === route.departure
         ? "Start point"
-        : hoveredCountry.code === route.destination
+        : activeCountry.code === route.destination
           ? "Destination selected"
           : route.passport
-            ? mapColors[hoveredCountry.code] || "Visa required"
+            ? mapColors[activeCountry.code] || "Visa required"
             : "Set a passport to preview access"
     : "";
 
@@ -621,45 +735,64 @@ function App() {
 
           {["passport", "departure", "destination"].map((field) => (
             <label key={field} className="search-field">
-              <span>
+              <span className="search-label">
                 {field === "passport"
                   ? "Passport held"
                   : field === "departure"
                     ? "Starting from"
                     : "Destination"}
               </span>
-              <input
-                list={`${field}-options`}
-                value={inputs[field]}
-                onChange={(event) =>
-                  setInputs((current) => ({
-                    ...current,
-                    [field]: event.target.value
-                  }))
-                }
-                onBlur={() => applyInput(field)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    applyInput(field);
-                  }
-                }}
-                placeholder={
-                  field === "passport"
-                    ? "New Zealand"
-                    : field === "departure"
-                      ? "Auckland or United Arab Emirates"
-                      : "Japan"
-                }
-                disabled={countriesLoading}
-              />
-              <datalist id={`${field}-options`}>
-                {countries.map((country, index) => (
-                  <option
-                    key={`${field}-${country.code || country.name}-${index}`}
-                    value={country.name}
+              {field === "passport" ? (
+                <select
+                  value={route.passport}
+                  onChange={(event) => {
+                    const country = countriesByCode.get(event.target.value) || null;
+
+                    if (country) {
+                      updateField("passport", country);
+                    } else {
+                      clearField("passport");
+                    }
+                  }}
+                  disabled={countriesLoading}
+                >
+                  <option value="">Select a passport</option>
+                  {supportedPassportCountries.map((country) => (
+                    <option key={`passport-${country.code}`} value={country.code}>
+                      {country.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <>
+                  <input
+                    list={`${field}-options`}
+                    value={inputs[field]}
+                    onChange={(event) =>
+                      setInputs((current) => ({
+                        ...current,
+                        [field]: event.target.value
+                      }))
+                    }
+                    onBlur={() => applyInput(field)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        applyInput(field);
+                      }
+                    }}
+                    placeholder={field === "departure" ? "United Arab Emirates" : "Japan"}
+                    disabled={countriesLoading}
                   />
-                ))}
-              </datalist>
+                  <datalist id={`${field}-options`}>
+                    {countries.map((country, index) => (
+                      <option
+                        key={`${field}-${country.code || country.name}-${index}`}
+                        value={country.name}
+                      />
+                    ))}
+                  </datalist>
+                </>
+              )}
             </label>
           ))}
         </header>
@@ -668,84 +801,102 @@ function App() {
           <p className="eyebrow">Map-first workspace</p>
           <h1>Explore visa access on a living globe.</h1>
           <p>
-            The map is stripped back to country names and outlines. Hover a country to
-            inspect it, and click countries to fill passport, start, then destination
-            in sequence.
+            Hover a country to inspect it, click to keep its details open, and use map
+            clicks to set the start point first and the destination second.
           </p>
         </section>
 
         <section className="hover-panel">
           <p className="panel-kicker">Country brief</p>
-          {hoveredCountry ? (
+          {activeCountry ? (
             <>
               <div className="panel-header">
                 <h2>
-                  <span className="flag">{hoveredCountry.flag}</span>
-                  {hoveredCountry.name}
+                  <span className="flag">{activeCountry.flag}</span>
+                  {activeCountry.name}
                 </h2>
                 <span
                   className="status-pill"
-                  style={{ background: getStatusTone(hoveredStatus) }}
+                  style={{ background: getStatusTone(activeStatus) }}
                 >
-                  {getStatusLabel(hoveredStatus)}
+                  {getStatusLabel(activeStatus)}
                 </span>
               </div>
 
               <div className="detail-grid">
                 <div>
+                  <span>Country code</span>
+                  <strong>{activeCountry.code}</strong>
+                </div>
+                <div>
                   <span>Capital</span>
-                  <strong>{hoveredCountry.capital}</strong>
+                  <strong>{activeCountry.capital}</strong>
                 </div>
                 <div>
                   <span>Region</span>
-                  <strong>{hoveredCountry.subregion || hoveredCountry.region}</strong>
+                  <strong>{activeCountry.subregion || activeCountry.region}</strong>
                 </div>
                 <div>
                   <span>Population</span>
-                  <strong>{formatPopulation(hoveredCountry.population)}</strong>
+                  <strong>{formatPopulation(activeCountry.population)}</strong>
                 </div>
                 <div>
                   <span>Area</span>
-                  <strong>{formatArea(hoveredCountry.area)}</strong>
+                  <strong>{formatArea(activeCountry.area)}</strong>
+                </div>
+                <div>
+                  <span>Languages</span>
+                  <strong>
+                    {formatList(activeCountry.languages?.map((language) => language.name))}
+                  </strong>
+                </div>
+                <div>
+                  <span>Currencies</span>
+                  <strong>
+                    {formatList(
+                      activeCountry.currencies?.map((currency) =>
+                        currency.symbol
+                          ? `${currency.name} (${currency.symbol})`
+                          : currency.name
+                      )
+                    )}
+                  </strong>
                 </div>
                 <div>
                   <span>Passport rating</span>
-                  <strong>{hoveredCountry.passportStrength}</strong>
+                  <strong>{activeCountry.passportStrength}</strong>
                 </div>
                 <div>
                   <span>Landlocked</span>
-                  <strong>{hoveredCountry.landlocked ? "Yes" : "No"}</strong>
+                  <strong>{activeCountry.landlocked ? "Yes" : "No"}</strong>
                 </div>
               </div>
 
               <div className="mini-stats">
                 <div>
                   <span>Visa-free</span>
-                  <strong>{hoveredCountry.mobilitySummary?.visaFree || 0}</strong>
+                  <strong>{activeCountry.mobilitySummary?.visaFree || 0}</strong>
                 </div>
                 <div>
                   <span>Arrival</span>
                   <strong>
-                    {(hoveredCountry.mobilitySummary?.visaOnArrival || 0) +
-                      (hoveredCountry.mobilitySummary?.eVisa || 0)}
+                    {(activeCountry.mobilitySummary?.visaOnArrival || 0) +
+                      (activeCountry.mobilitySummary?.eVisa || 0)}
                   </strong>
                 </div>
                 <div>
                   <span>Required</span>
-                  <strong>{hoveredCountry.mobilitySummary?.visaRequired || 0}</strong>
+                  <strong>{activeCountry.mobilitySummary?.visaRequired || 0}</strong>
                 </div>
               </div>
 
               <div className="panel-actions">
-                <button type="button" onClick={() => updateField("passport", hoveredCountry)}>
-                  Use as passport
-                </button>
-                <button type="button" onClick={() => updateField("departure", hoveredCountry)}>
+                <button type="button" onClick={() => updateField("departure", activeCountry)}>
                   Use as start
                 </button>
                 <button
                   type="button"
-                  onClick={() => updateField("destination", hoveredCountry)}
+                  onClick={() => updateField("destination", activeCountry)}
                 >
                   Use as destination
                 </button>
@@ -753,7 +904,7 @@ function App() {
             </>
           ) : (
             <div className="empty-state">
-              Hover a country on the map to see the quick brief here.
+              Hover a country on the map to preview it, then click to keep its brief open.
             </div>
           )}
         </section>
@@ -762,14 +913,27 @@ function App() {
           <section className="panel-card">
             <p className="panel-kicker">Current route</p>
             <div className="route-tokens">
-              <span>{passportCountry?.name || "Passport"}</span>
-              <span>{departureCountry?.name || "Start"}</span>
-              <span>{destinationCountry?.name || "Destination"}</span>
+              <span>
+                {departureCountry?.name || "Start"}
+                {departureCountry ? (
+                  <button type="button" onClick={() => clearField("departure")}>
+                    Clear
+                  </button>
+                ) : null}
+              </span>
+              <span>
+                {destinationCountry?.name || "Destination"}
+                {destinationCountry ? (
+                  <button type="button" onClick={() => clearField("destination")}>
+                    Clear
+                  </button>
+                ) : null}
+              </span>
             </div>
 
-            {!route.passport || !route.destination ? (
+            {!route.passport || !route.departure || !route.destination ? (
               <div className="empty-state">
-                Select a passport and destination to load route guidance.
+                Select a passport, then choose both a start and destination country.
               </div>
             ) : visaLoading ? (
               <div className="empty-state">Loading visa guidance...</div>
@@ -779,48 +943,83 @@ function App() {
               <div className="route-content">
                 <div className="panel-header">
                   <h2>
-                    {visaInfo.origin.name} to {visaInfo.destination.name}
+                    {departureCountry?.name || "Start"} to{" "}
+                    {destinationCountry?.name || visaInfo.destination.name}
                   </h2>
                   <span
                     className="status-pill"
                     style={{
-                      background: getStatusTone(visaInfo.requirement.status)
+                      background: getStatusTone(
+                        visaInfo.requirement.simplified?.tourism.allowed === "yes"
+                          ? "Visa-free"
+                          : visaInfo.requirement.simplified?.tourism.allowed === "no"
+                            ? "Visa required"
+                            : "Unknown"
+                      )
                     }}
                   >
-                    {getStatusLabel(visaInfo.requirement.status)}
+                    Tourism:{" "}
+                    {humanizeDecision(visaInfo.requirement.simplified?.tourism.allowed)}
                   </span>
                 </div>
 
-                <p className="route-copy">{visaInfo.requirement.conditions}</p>
+                <p className="route-copy">
+                  {visaInfo.requirement.simplified?.tourism.note ||
+                    visaInfo.requirement.conditions}
+                </p>
 
                 <div className="detail-grid">
                   <div>
-                    <span>Max stay</span>
-                    <strong>{visaInfo.requirement.duration}</strong>
+                    <span>Passport held</span>
+                    <strong>{passportCountry?.name || "Not set"}</strong>
+                  </div>
+                  <div>
+                    <span>Tourism stay</span>
+                    <strong>
+                      {visaInfo.requirement.simplified?.tourism.maxStayDays != null
+                        ? `${visaInfo.requirement.simplified.tourism.maxStayDays} days`
+                        : "Unknown"}
+                    </strong>
                   </div>
                   <div>
                     <span>Confidence</span>
                     <strong>{visaInfo.requirement.routeMeta?.confidence || "n/a"}</strong>
                   </div>
                   <div>
+                    <span>Study path</span>
+                    <strong>
+                      {humanizeDecision(
+                        visaInfo.requirement.simplified?.study.pathExists
+                      )}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Work path</span>
+                    <strong>
+                      {humanizeDecision(
+                        visaInfo.requirement.simplified?.work.pathExists
+                      )}
+                    </strong>
+                  </div>
+                  <div>
                     <span>Match type</span>
                     <strong>{visaInfo.requirement.routeMeta?.matchType || "n/a"}</strong>
                   </div>
                   <div>
-                    <span>Dataset</span>
+                    <span>Last checked</span>
                     <strong>
-                      {visaInfo.requirement.routeMeta?.datasetUpdatedAt || "Unknown"}
+                      {visaInfo.requirement.simplified?.lastChecked || "Unknown"}
                     </strong>
                   </div>
                 </div>
 
                 <a
                   className="official-link"
-                  href={visaInfo.requirement.officialSource}
+                  href={visaInfo.requirement.simplified?.sourceUrl}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Open official immigration guidance
+                  Open source guidance
                 </a>
               </div>
             ) : null}
@@ -869,8 +1068,8 @@ function App() {
                         });
                       }
                     }}
-                  >
-                    <span>{item.passport || "Unknown passport"}</span>
+                    >
+                    <span>{item.departure || "Start not set"}</span>
                     <span>{item.destination || "Unknown destination"}</span>
                     <strong>{item.status}</strong>
                   </button>
