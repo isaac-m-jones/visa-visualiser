@@ -5,6 +5,7 @@
   line-height: 1.5;
   font-weight: 400;
   color-scheme: dark;
+  --ui-scale: 0.75;
 }
 
 * {
@@ -66,10 +67,10 @@ a {
 .hud-layer {
   z-index: 2;
   display: grid;
-  grid-template-columns: minmax(280px, 420px) minmax(0, 1fr) minmax(320px, 390px);
+  grid-template-columns: minmax(220px, 315px) minmax(0, 1fr) minmax(240px, 292px);
   grid-template-rows: auto 1fr;
-  gap: 18px;
-  padding: 18px;
+  gap: 14px;
+  padding: 14px;
   pointer-events: none;
 }
 
@@ -88,10 +89,10 @@ a {
 .search-bar {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 220px repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  grid-template-columns: 168px repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: 10px;
   align-self: start;
 }
 
@@ -103,30 +104,30 @@ a {
 }
 
 .brand-chip strong {
-  font-size: 1.1rem;
+  font-size: 0.92rem;
 }
 
 .eyebrow,
 .panel-kicker {
   margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  font-size: 0.58rem;
   color: #9fb4cf;
 }
 
 .search-field {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
 .search-label {
   color: #d9e7f7;
-  font-size: 0.82rem;
+  font-size: 0.68rem;
   white-space: nowrap;
-  min-width: 88px;
+  min-width: 68px;
 }
 
 .search-field input,
@@ -135,10 +136,11 @@ a {
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(10, 18, 34, 0.92);
   color: #f7fbff;
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 6px;
+  padding: 8px 10px;
   outline: none;
   min-width: 0;
+  font-size: 0.82rem;
 }
 
 .search-field input:focus,
@@ -151,48 +153,32 @@ a {
   grid-column: 1 / 2;
   grid-row: 2;
   align-self: start;
-  border-radius: 12px;
-  padding: 22px;
-  max-width: 420px;
+  border-radius: 10px;
+  padding: 16px;
+  max-width: 315px;
 }
 
 .hero-panel h1 {
-  margin: 0.35rem 0 0.85rem;
-  font-size: clamp(2.8rem, 4vw, 4.6rem);
+  margin: 0.25rem 0 0.65rem;
+  font-size: clamp(2rem, 3.1vw, 3.3rem);
   line-height: 0.95;
   max-width: 11ch;
 }
 
 .hero-panel p {
   margin: 0;
-  max-width: 34ch;
+  max-width: 31ch;
+  font-size: 0.82rem;
   color: #d6e3f3;
 }
 
 .hover-panel {
   grid-column: 1 / 2;
   grid-row: 2;
-  align-self: end;
-  border-radius: 12px;
-  padding: 18px;
-  max-width: 420px;
-}
-
-.hover-name {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 48px;
-  font-size: 1.05rem;
-}
-
-.hover-name span {
-  font-size: 1.4rem;
-}
-
-.hover-name strong {
-  font-size: 1.2rem;
-  line-height: 1.1;
+  align-self: start;
+  border-radius: 10px;
+  padding: 14px;
+  max-width: 315px;
 }
 
 .route-rail {
@@ -200,8 +186,8 @@ a {
   grid-row: 2;
   align-self: stretch;
   display: grid;
-  gap: 14px;
-  max-height: calc(100vh - 110px);
+  gap: 10px;
+  max-height: calc(100vh - 84px);
   overflow: auto;
   padding-right: 2px;
   pointer-events: none;
@@ -212,26 +198,26 @@ a {
 }
 
 .panel-card {
-  border-radius: 12px;
-  padding: 18px;
+  border-radius: 10px;
+  padding: 14px;
 }
 
 .panel-header {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .panel-header h2 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.02rem;
   line-height: 1.05;
 }
 
 .flag {
-  margin-right: 10px;
+  margin-right: 7px;
 }
 
 .status-pill {
@@ -239,9 +225,9 @@ a {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  padding: 8px 12px;
+  padding: 6px 9px;
   color: #03101c;
-  font-size: 0.85rem;
+  font-size: 0.68rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -250,14 +236,14 @@ a {
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .detail-grid div,
 .summary-grid div,
 .mini-stats div {
   border-radius: 8px;
-  padding: 12px;
+  padding: 9px;
   background: rgba(15, 24, 42, 0.76);
 }
 
@@ -266,28 +252,28 @@ a {
 .mini-stats span {
   display: block;
   color: #9fb4cf;
-  font-size: 0.78rem;
-  margin-bottom: 6px;
+  font-size: 0.64rem;
+  margin-bottom: 4px;
 }
 
 .detail-grid strong,
 .summary-grid strong,
 .mini-stats strong {
-  font-size: 0.96rem;
+  font-size: 0.8rem;
 }
 
 .mini-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 10px;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .panel-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .panel-actions button,
@@ -295,26 +281,27 @@ a {
   border: 1px solid rgba(148, 163, 184, 0.16);
   background: rgba(11, 20, 38, 0.92);
   color: #f7fbff;
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 6px;
+  padding: 9px;
+  font-size: 0.78rem;
 }
 
 .route-tokens {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 12px 0 16px;
+  gap: 6px;
+  margin: 10px 0 12px;
 }
 
 .route-tokens span {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  border-radius: 7px;
-  padding: 8px 10px;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 6px 8px;
   background: rgba(11, 20, 38, 0.92);
   color: #d8e6f6;
-  font-size: 0.86rem;
+  font-size: 0.72rem;
 }
 
 .route-tokens button {
@@ -322,18 +309,20 @@ a {
   background: rgba(24, 35, 56, 0.9);
   color: #cfe0f5;
   border-radius: 5px;
-  padding: 4px 8px;
-  font-size: 0.76rem;
+  padding: 3px 6px;
+  font-size: 0.64rem;
 }
 
 .route-copy {
-  margin: 0 0 14px;
+  margin: 0 0 10px;
+  font-size: 0.8rem;
   color: #d6e3f3;
 }
 
 .official-link {
   display: inline-flex;
-  margin-top: 16px;
+  margin-top: 12px;
+  font-size: 0.78rem;
   color: #8bd8ff;
   text-decoration: none;
 }
@@ -344,7 +333,7 @@ a {
 
 .recent-routes {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .recent-route {
@@ -352,7 +341,7 @@ a {
   text-align: left;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
 }
 
 .recent-route strong {
@@ -361,7 +350,8 @@ a {
 
 .empty-state {
   border-radius: 8px;
-  padding: 16px;
+  padding: 12px;
+  font-size: 0.8rem;
   background: rgba(15, 24, 42, 0.76);
   color: #d6e3f3;
 }
@@ -369,10 +359,11 @@ a {
 .floating-alert {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  bottom: 14px;
   transform: translateX(-50%);
   border-radius: 8px;
-  padding: 12px 16px;
+  padding: 9px 12px;
+  font-size: 0.76rem;
 }
 
 .maplibregl-ctrl-bottom-left,

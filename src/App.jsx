@@ -4,6 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { getStatusLabel, getStrengthSummary } from "./lib/visa";
 
 const GEO_URL = "/countries.geo.json";
+const MAX_GLOBE_ZOOM = 6;
 
 const MAP_STYLE = {
   version: 8,
@@ -43,6 +44,20 @@ function formatList(values, emptyLabel = "Not listed") {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function getResponsiveMinGlobeZoom(container) {
+  if (!container) {
+    return 2.05;
+  }
+
+  const width = container.clientWidth || 0;
+  const height = container.clientHeight || 0;
+  const longestEdge = Math.max(width, height);
+
+  // Keep the globe framed a little tighter on larger viewports so the sphere edge
+  // stays out of view while preserving a Google Maps-like world scale.
+  return clamp(1.85 + Math.max(0, longestEdge - 1100) / 900, 1.85, 2.45);
 }
 
 function normalizeCountrySearch(value) {
@@ -141,6 +156,7 @@ function App() {
 
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const minZoomRef = useRef(2.05);
 
   useEffect(() => {
     let cancelled = false;
@@ -262,15 +278,18 @@ function App() {
       return;
     }
 
+    const initialMinZoom = getResponsiveMinGlobeZoom(mapContainerRef.current);
+    minZoomRef.current = initialMinZoom;
+
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: MAP_STYLE,
       center: [18, 18],
-      zoom: 1.55,
+      zoom: initialMinZoom,
       pitch: 0,
       bearing: 0,
-      maxZoom: 6,
-      minZoom: 1.1,
+      maxZoom: MAX_GLOBE_ZOOM,
+      minZoom: initialMinZoom,
       attributionControl: false,
       dragRotate: true
     });
@@ -288,7 +307,11 @@ function App() {
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault();
 
-        const nextZoom = clamp(map.getZoom() - event.deltaY * 0.01, 1.1, 6);
+        const nextZoom = clamp(
+          map.getZoom() - event.deltaY * 0.01,
+          minZoomRef.current,
+          MAX_GLOBE_ZOOM
+        );
         map.zoomTo(nextZoom, {
           around: map.unproject(point),
           duration: 0,
@@ -305,6 +328,21 @@ function App() {
     };
 
     canvasContainer.addEventListener("wheel", handleWheel, { passive: false });
+
+    const resizeObserver = new ResizeObserver(() => {
+      const nextMinZoom = getResponsiveMinGlobeZoom(mapContainerRef.current);
+      minZoomRef.current = nextMinZoom;
+      map.setMinZoom(nextMinZoom);
+
+      if (map.getZoom() < nextMinZoom) {
+        map.zoomTo(nextMinZoom, {
+          duration: 0,
+          essential: true
+        });
+      }
+    });
+
+    resizeObserver.observe(mapContainerRef.current);
 
     map.on("style.load", () => {
       map.setProjection({ type: "globe" });
@@ -324,6 +362,7 @@ function App() {
 
     return () => {
       canvasContainer.removeEventListener("wheel", handleWheel);
+      resizeObserver.disconnect();
       map.remove();
       mapRef.current = null;
     };
@@ -562,7 +601,7 @@ function App() {
 
     map.flyTo({
       center: [focusCountry.latlng[1], focusCountry.latlng[0]],
-      zoom: destinationCountry ? 3 : 2.2,
+      zoom: Math.max(destinationCountry ? 3 : 2.2, minZoomRef.current),
       duration: 1000,
       essential: true
     });
@@ -797,20 +836,21 @@ function App() {
           ))}
         </header>
 
-        <section className="hero-panel">
-          <p className="eyebrow">Map-first workspace</p>
-          <h1>Explore visa access on a living globe.</h1>
-          <p>
-            Hover a country to inspect it, click to keep its details open, and use map
-            clicks to set the start point first and the destination second.
-          </p>
-        </section>
+        {!activeCountry ? (
+          <section className="hero-panel">
+            <p className="eyebrow">Map-first workspace</p>
+            <h1>Explore visa access on a living globe.</h1>
+            <p>
+              Hover a country to inspect it, click to keep its details open, and use map
+              clicks to set the start point first and the destination second.
+            </p>
+          </section>
+        ) : null}
 
-        <section className="hover-panel">
-          <p className="panel-kicker">Country brief</p>
-          {activeCountry ? (
-            <>
-              <div className="panel-header">
+        {activeCountry ? (
+          <section className="hover-panel">
+            <p className="panel-kicker">Country brief</p>
+            <div className="panel-header">
                 <h2>
                   <span className="flag">{activeCountry.flag}</span>
                   {activeCountry.name}
@@ -821,9 +861,9 @@ function App() {
                 >
                   {getStatusLabel(activeStatus)}
                 </span>
-              </div>
+            </div>
 
-              <div className="detail-grid">
+            <div className="detail-grid">
                 <div>
                   <span>Country code</span>
                   <strong>{activeCountry.code}</strong>
@@ -870,9 +910,9 @@ function App() {
                   <span>Landlocked</span>
                   <strong>{activeCountry.landlocked ? "Yes" : "No"}</strong>
                 </div>
-              </div>
+            </div>
 
-              <div className="mini-stats">
+            <div className="mini-stats">
                 <div>
                   <span>Visa-free</span>
                   <strong>{activeCountry.mobilitySummary?.visaFree || 0}</strong>
@@ -888,26 +928,21 @@ function App() {
                   <span>Required</span>
                   <strong>{activeCountry.mobilitySummary?.visaRequired || 0}</strong>
                 </div>
-              </div>
-
-              <div className="panel-actions">
-                <button type="button" onClick={() => updateField("departure", activeCountry)}>
-                  Use as start
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateField("destination", activeCountry)}
-                >
-                  Use as destination
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="empty-state">
-              Hover a country on the map to preview it, then click to keep its brief open.
             </div>
-          )}
-        </section>
+
+            <div className="panel-actions">
+              <button type="button" onClick={() => updateField("departure", activeCountry)}>
+                Use as start
+              </button>
+              <button
+                type="button"
+                onClick={() => updateField("destination", activeCountry)}
+              >
+                Use as destination
+              </button>
+            </div>
+          </section>
+        ) : null}
 
         <aside className="route-rail">
           <section className="panel-card">
