@@ -1,5 +1,9 @@
 import cors from "cors";
 import express from "express";
+import {
+  DatabaseNotReadyError,
+  getDatabaseStatus
+} from "./lib/database.js";
 import { getVisaRequirement, listCountries } from "./lib/visaService.js";
 
 const app = express();
@@ -10,32 +14,61 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/api/health", (_request, response) => {
-  response.json({ ok: true });
+  const database = getDatabaseStatus();
+
+  response.status(database.ready ? 200 : 503).json({
+    ok: database.ready,
+    database
+  });
 });
 
 app.get("/api/countries", (_request, response) => {
-  response.json({ countries: listCountries() });
+  try {
+    response.json({ countries: listCountries() });
+  } catch (error) {
+    if (error instanceof DatabaseNotReadyError) {
+      response.status(503).json({
+        error: error.message,
+        database: getDatabaseStatus()
+      });
+      return;
+    }
+
+    throw error;
+  }
 });
 
 app.get("/api/visa", (request, response) => {
-  const { origin, destination } = request.query;
+  try {
+    const { origin, destination } = request.query;
 
-  if (!origin || !destination) {
-    response.status(400).json({
-      error: "Both origin and destination are required."
-    });
-    return;
+    if (!origin || !destination) {
+      response.status(400).json({
+        error: "Both origin and destination are required."
+      });
+      return;
+    }
+
+    const result = getVisaRequirement(String(origin), String(destination));
+    if (!result) {
+      response.status(404).json({
+        error: "Unknown country code."
+      });
+      return;
+    }
+
+    response.json(result);
+  } catch (error) {
+    if (error instanceof DatabaseNotReadyError) {
+      response.status(503).json({
+        error: error.message,
+        database: getDatabaseStatus()
+      });
+      return;
+    }
+
+    throw error;
   }
-
-  const result = getVisaRequirement(String(origin), String(destination));
-  if (!result) {
-    response.status(404).json({
-      error: "Unknown country code."
-    });
-    return;
-  }
-
-  response.json(result);
 });
 
 app.listen(port, host, () => {

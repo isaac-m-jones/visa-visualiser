@@ -1,14 +1,4 @@
-import worldCountries from "world-countries";
-import {
-  sampleCountryMetadata,
-  simplifiedRouteMatrix
-} from "../data/visaData.js";
-
-const DATASET_UPDATED_AT = "2026-03-25";
-
-const metadataByCode = new Map(
-  sampleCountryMetadata.map((country) => [country.code, country])
-);
+import { getDatabase, getDatasetUpdatedAt } from "./database.js";
 
 function countPreviewStatuses(preview) {
   return preview.reduce(
@@ -17,8 +7,12 @@ function countPreviewStatuses(preview) {
         accumulator.visaFree += 1;
       } else if (item.status === "Visa on arrival") {
         accumulator.visaOnArrival += 1;
+      } else if (item.status === "ETA") {
+        accumulator.eta += 1;
       } else if (item.status === "eVisa") {
         accumulator.eVisa += 1;
+      } else if (item.status === "No admission") {
+        accumulator.noAdmission += 1;
       } else {
         accumulator.visaRequired += 1;
       }
@@ -28,25 +22,12 @@ function countPreviewStatuses(preview) {
     {
       visaFree: 0,
       visaOnArrival: 0,
+      eta: 0,
       eVisa: 0,
+      noAdmission: 0,
       visaRequired: 0
     }
   );
-}
-
-function normalizeCurrencies(currencies = {}) {
-  return Object.entries(currencies).map(([code, value]) => ({
-    code,
-    name: value.name,
-    symbol: value.symbol || ""
-  }));
-}
-
-function normalizeLanguages(languages = {}) {
-  return Object.entries(languages).map(([code, name]) => ({
-    code,
-    name
-  }));
 }
 
 function buildRouteMeta(matchType, origin, destination, confidence) {
@@ -57,11 +38,15 @@ function buildRouteMeta(matchType, origin, destination, confidence) {
     destinationRegion: destination.region,
     originPassportStrength: origin.passportStrength,
     destinationPassportStrength: destination.passportStrength,
-    datasetUpdatedAt: DATASET_UPDATED_AT
+    datasetUpdatedAt: getDatasetUpdatedAt()
   };
 }
 
 function deriveLegacyStatus(routeRecord) {
+  if (routeRecord.tourism.requirementCode) {
+    return routeRecord.tourism.requirementCode;
+  }
+
   if (routeRecord.tourism.allowed === "yes") {
     if (routeRecord.tourism.note?.toLowerCase().includes("visa on arrival")) {
       return "Visa on arrival";
@@ -119,6 +104,7 @@ function buildFallbackRouteRecord(previewStatus) {
     return {
       tourism: {
         allowed: "yes",
+        requirementCode: "Visa-free",
         maxStayDays: 90,
         note: "Tourism appears to be available without a standard pre-approved visa in this starter dataset."
       },
@@ -126,14 +112,24 @@ function buildFallbackRouteRecord(previewStatus) {
       work: { pathExists: "unknown" },
       sourceUrl: "https://www.iata.org/en/services/compliance/timatic/",
       confidence: "medium",
-      lastChecked: DATASET_UPDATED_AT
+      lastChecked: getDatasetUpdatedAt()
     };
   }
 
-  if (previewStatus === "Visa on arrival" || previewStatus === "eVisa") {
+  if (
+    previewStatus === "Visa on arrival" ||
+    previewStatus === "ETA" ||
+    previewStatus === "eVisa"
+  ) {
     return {
       tourism: {
         allowed: "yes",
+        requirementCode:
+          previewStatus === "ETA"
+            ? "ETA"
+            : previewStatus === "eVisa"
+              ? "eVisa"
+              : "Visa on arrival",
         maxStayDays: 30,
         note: "Tourism appears possible via a simplified arrival or online process in this starter dataset."
       },
@@ -141,60 +137,211 @@ function buildFallbackRouteRecord(previewStatus) {
       work: { pathExists: "unknown" },
       sourceUrl: "https://www.iata.org/en/services/compliance/timatic/",
       confidence: "medium",
-      lastChecked: DATASET_UPDATED_AT
+      lastChecked: getDatasetUpdatedAt()
     };
   }
 
   return {
-    tourism: {
-      allowed: "unknown",
-      maxStayDays: null,
-      note: "This starter dataset does not yet have a verified tourism answer for this route."
-    },
+      tourism: {
+        allowed: previewStatus === "No admission" ? "no" : "unknown",
+        requirementCode: previewStatus === "No admission" ? "No admission" : "Unknown",
+        maxStayDays: null,
+        note: "This starter dataset does not yet have a verified tourism answer for this route."
+      },
     study: { pathExists: "unknown" },
     work: { pathExists: "unknown" },
     sourceUrl: "https://www.iata.org/en/services/compliance/timatic/",
     confidence: "low",
-    lastChecked: DATASET_UPDATED_AT
+    lastChecked: getDatasetUpdatedAt()
   };
 }
 
-const countryCatalog = worldCountries
-  .map((country) => {
-    const metadata = metadataByCode.get(country.cca3);
-    const preview = metadata?.preview || [];
-    const mobilitySummary = countPreviewStatuses(preview);
+function shapeCountryRows(countryRows) {
+  const grouped = new Map();
 
-    return {
-      code: country.cca3,
-      name: country.name.common,
-      officialName: country.name.official,
-      flag: country.flag,
-      region: country.region || "Unknown region",
-      subregion: country.subregion || "",
-      capital: country.capital?.[0] || "Not listed",
-      population: country.population || 0,
-      area: country.area || 0,
-      latlng: country.latlng || [],
-      landlocked: Boolean(country.landlocked),
-      currencies: normalizeCurrencies(country.currencies),
-      languages: normalizeLanguages(country.languages),
-      passportStrength: metadata?.passportStrength || "Baseline",
-      preview,
-      mobilitySummary,
-      metadataSource: metadata ? "sample-matrix" : "world-countries"
-    };
-  })
-  .sort((left, right) => left.name.localeCompare(right.name));
+  for (const row of countryRows) {
+    if (!grouped.has(row.code)) {
+      grouped.set(row.code, {
+        code: row.code,
+        name: row.name,
+        officialName: row.official_name,
+        flag: row.flag,
+        region: row.region,
+        subregion: row.subregion,
+        capital: row.capital,
+        population: row.population,
+        area: row.area,
+        latlng:
+          row.lat != null && row.lng != null ? [Number(row.lat), Number(row.lng)] : [],
+        landlocked: Boolean(row.landlocked),
+        currencies: [],
+        languages: [],
+        passportStrength: row.passport_strength,
+        preview: [],
+        mobilitySummary: {
+          visaFree: 0,
+          visaOnArrival: 0,
+          eta: 0,
+          eVisa: 0,
+          noAdmission: 0,
+          visaRequired: 0
+        },
+        metadataSource: row.metadata_source
+      });
+    }
 
-const countryByCode = new Map(countryCatalog.map((country) => [country.code, country]));
+    const country = grouped.get(row.code);
+
+    if (row.language_code) {
+      const alreadyPresent = country.languages.some(
+        (language) => language.code === row.language_code
+      );
+
+      if (!alreadyPresent) {
+        country.languages.push({
+          code: row.language_code,
+          name: row.language_name
+        });
+      }
+    }
+
+    if (row.currency_code) {
+      const alreadyPresent = country.currencies.some(
+        (currency) => currency.code === row.currency_code
+      );
+
+      if (!alreadyPresent) {
+        country.currencies.push({
+          code: row.currency_code,
+          name: row.currency_name,
+          symbol: row.currency_symbol
+        });
+      }
+    }
+
+    if (row.preview_destination_code) {
+      const alreadyPresent = country.preview.some(
+        (preview) => preview.destinationCode === row.preview_destination_code
+      );
+
+      if (!alreadyPresent) {
+        country.preview.push({
+          destinationCode: row.preview_destination_code,
+          status: row.preview_status
+        });
+      }
+    }
+  }
+
+  return [...grouped.values()]
+    .map((country) => ({
+      ...country,
+      mobilitySummary: countPreviewStatuses(country.preview)
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function queryCountryRows(whereClause = "", parameters = {}) {
+  const database = getDatabase();
+
+  return database
+    .prepare(`
+      SELECT
+        c.code,
+        c.name,
+        c.official_name,
+        c.flag,
+        c.region,
+        c.subregion,
+        c.capital,
+        c.population,
+        c.area,
+        c.lat,
+        c.lng,
+        c.landlocked,
+        c.passport_strength,
+        c.metadata_source,
+        cl.language_code,
+        cl.name AS language_name,
+        cc.currency_code,
+        cc.name AS currency_name,
+        cc.symbol AS currency_symbol,
+        pp.destination_code AS preview_destination_code,
+        pp.status AS preview_status
+      FROM countries c
+      LEFT JOIN country_languages cl ON cl.country_code = c.code
+      LEFT JOIN country_currencies cc ON cc.country_code = c.code
+      LEFT JOIN passport_previews pp ON pp.origin_code = c.code
+      ${whereClause}
+      ORDER BY c.name, cl.language_code, cc.currency_code, pp.destination_code
+    `)
+    .all(parameters);
+}
 
 export function listCountries() {
-  return countryCatalog;
+  return shapeCountryRows(queryCountryRows());
 }
 
 export function getCountry(code) {
-  return countryByCode.get(code);
+  const countries = shapeCountryRows(
+    queryCountryRows("WHERE c.code = :code", { code })
+  );
+
+  return countries[0];
+}
+
+function getExactVisaRecord(originCode, destinationCode) {
+  const database = getDatabase();
+
+  return database
+    .prepare(`
+      SELECT
+        tourism_allowed,
+        tourism_requirement_code,
+        tourism_max_stay_days,
+        tourism_note,
+        study_path_exists,
+        work_path_exists,
+        source_url,
+        confidence,
+        last_checked
+      FROM visa_requirements
+      WHERE origin_code = ? AND destination_code = ?
+    `)
+    .get(originCode, destinationCode);
+}
+
+function getPreviewStatus(originCode, destinationCode) {
+  const database = getDatabase();
+  const row = database
+    .prepare(`
+      SELECT status
+      FROM passport_previews
+      WHERE origin_code = ? AND destination_code = ?
+    `)
+    .get(originCode, destinationCode);
+
+  return row?.status || null;
+}
+
+function shapeVisaRecord(record) {
+  return {
+    tourism: {
+      allowed: record.tourism_allowed,
+      requirementCode: record.tourism_requirement_code,
+      maxStayDays: record.tourism_max_stay_days,
+      note: record.tourism_note
+    },
+    study: {
+      pathExists: record.study_path_exists
+    },
+    work: {
+      pathExists: record.work_path_exists
+    },
+    sourceUrl: record.source_url,
+    confidence: record.confidence,
+    lastChecked: record.last_checked
+  };
 }
 
 export function getVisaRequirement(originCode, destinationCode) {
@@ -209,6 +356,7 @@ export function getVisaRequirement(originCode, destinationCode) {
     const selfRecord = {
       tourism: {
         allowed: "yes",
+        requirementCode: "Visa-free",
         maxStayDays: null,
         note: "Domestic travel does not require a visa."
       },
@@ -220,7 +368,7 @@ export function getVisaRequirement(originCode, destinationCode) {
       },
       sourceUrl: "https://www.iata.org/",
       confidence: "high",
-      lastChecked: DATASET_UPDATED_AT
+      lastChecked: getDatasetUpdatedAt()
     };
 
     return {
@@ -230,25 +378,27 @@ export function getVisaRequirement(originCode, destinationCode) {
     };
   }
 
-  const exactMatch = simplifiedRouteMatrix[originCode]?.[destinationCode];
+  const exactMatch = getExactVisaRecord(originCode, destinationCode);
   if (exactMatch) {
     return {
       origin,
       destination,
-      requirement: buildRequirement(exactMatch, origin, destination, "matrix")
+      requirement: buildRequirement(
+        shapeVisaRecord(exactMatch),
+        origin,
+        destination,
+        "matrix"
+      )
     };
   }
 
-  const previewMatch = origin.preview.find(
-    (item) => item.destinationCode === destinationCode
-  );
-
-  if (previewMatch) {
+  const previewStatus = getPreviewStatus(originCode, destinationCode);
+  if (previewStatus) {
     return {
       origin,
       destination,
       requirement: buildRequirement(
-        buildFallbackRouteRecord(previewMatch.status),
+        buildFallbackRouteRecord(previewStatus),
         origin,
         destination,
         "preview"

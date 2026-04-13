@@ -54,11 +54,25 @@ export function getStatusAppearance(status, originCode, destinationCode, geoCode
     };
   }
 
-  if (status === "Visa on arrival" || status === "eVisa") {
+  if (status === "Visa on arrival" || status === "ETA" || status === "eVisa") {
     return {
-      fill: status === "eVisa" ? "rgba(251,191,36,0.8)" : "rgba(245,158,11,0.8)",
+      fill:
+        status === "eVisa"
+          ? "rgba(251,191,36,0.8)"
+          : status === "ETA"
+            ? "rgba(245, 208, 84, 0.8)"
+            : "rgba(245,158,11,0.8)",
       hoverFill: "#fbbf24",
       stroke: "rgba(253,230,138,0.7)",
+      strokeWidth: 0.6
+    };
+  }
+
+  if (status === "No admission") {
+    return {
+      fill: "rgba(127, 29, 29, 0.82)",
+      hoverFill: "#dc2626",
+      stroke: "rgba(254, 202, 202, 0.7)",
       strokeWidth: 0.6
     };
   }
@@ -98,7 +112,11 @@ export function getStrengthSummary(originCode, countries) {
     (accumulator, item) => {
       if (item.status === "Visa-free") {
         accumulator.visaFree += 1;
-      } else if (item.status === "Visa on arrival" || item.status === "eVisa") {
+      } else if (
+        item.status === "Visa on arrival" ||
+        item.status === "ETA" ||
+        item.status === "eVisa"
+      ) {
         accumulator.arrival += 1;
       } else {
         accumulator.required += 1;

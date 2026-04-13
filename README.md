@@ -25,13 +25,22 @@ An interactive full-stack web application for exploring visa requirements betwee
    npm install
    ```
 
-2. Start the frontend and backend together:
+2. Provision the database manually:
+
+   ```bash
+   npm run db:provision:starter
+   ```
+
+   This writes a repeatable snapshot file and imports it into SQLite once. The app no
+   longer seeds data automatically on startup.
+
+3. Start the frontend and backend together:
 
    ```bash
    npm run dev
    ```
 
-3. Open the app at [http://localhost:5173](http://localhost:5173)
+4. Open the app at [http://localhost:5173](http://localhost:5173)
 
 The API runs on `http://localhost:3001` and exposes:
 
@@ -41,14 +50,19 @@ The API runs on `http://localhost:3001` and exposes:
 
 ## Data model
 
-The visa layer lives in [server/data/visaData.js](/Users/isaacjones/Downloads/visa-visualiser/server/data/visaData.js). It includes:
+The runtime app reads from SQLite only. Provisioning is now a separate workflow:
 
-- `sampleCountryMetadata`: richer sample metadata for passport-strength previews
-- `visaMatrix`: route-specific visa information
+- Build a snapshot file: `npm run db:build:starter`
+- Fetch a current bulk web dataset into a snapshot: `npm run db:fetch:passport-index`
+- Import a snapshot file: `npm run db:import -- --file /path/to/dataset.json`
+- Fetch and import the current bulk web dataset in one step: `npm run db:sync:passport-index`
+- Inspect readiness: `npm run db:status`
 
-The full country list comes from the `world-countries` package, and the sample metadata is merged onto it in [server/lib/visaService.js](/Users/isaacjones/Downloads/visa-visualiser/server/lib/visaService.js). You can extend the app by adding richer preview metadata and more bilateral entries to `visaMatrix`.
+The included starter snapshot builder still uses [server/data/visaData.js](/Users/isaacjones/Downloads/codex-projects/visa-visualiser/server/data/visaData.js:1) plus `world-countries`, but only when you run the provisioning command manually. Later we can gather web-sourced data into the same snapshot format and import it with the same mechanism.
+
+The current web-source adapter targets the public [imorte/passport-index-data](https://github.com/imorte/passport-index-data) repository, which states that it mirrors `passportindex.org` and was last updated on February 17, 2026 when I inspected it.
 
 ## Notes
 
-- The included dataset is an example starter dataset, designed to be easy to swap out.
-- The map geometry is loaded from the DataHub `geo-countries` GeoJSON endpoint at runtime.
+- The included dataset is now an optional starter source, not an automatic seed.
+- The map geometry is loaded from the local [public/countries.geo.json](/Users/isaacjones/Downloads/codex-projects/visa-visualiser/public/countries.geo.json:1).

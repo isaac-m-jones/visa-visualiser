@@ -8,7 +8,13 @@
     "dev:client": "vite",
     "dev:server": "node server/index.js",
     "build": "vite build",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "db:build:starter": "node server/scripts/buildStarterDataset.js",
+    "db:import": "node server/scripts/importDataset.js",
+    "db:provision:starter": "npm run db:build:starter && npm run db:import -- --file server/data/snapshots/starter-dataset.generated.json",
+    "db:status": "node server/scripts/dbStatus.js",
+    "db:fetch:passport-index": "node server/scripts/fetchPassportIndex.js",
+    "db:sync:passport-index": "node server/scripts/syncPassportIndex.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

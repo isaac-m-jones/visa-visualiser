@@ -23,6 +23,20 @@ const MAP_STYLE = {
 const initialRoute = { passport: "", departure: "", destination: "" };
 const initialInputState = { passport: "", departure: "", destination: "" };
 
+async function getApiErrorMessage(response, fallbackMessage) {
+  try {
+    const payload = await response.json();
+
+    if (payload?.error) {
+      return payload.error;
+    }
+  } catch {
+    // Ignore invalid JSON and fall back to the default message.
+  }
+
+  return fallbackMessage;
+}
+
 function formatPopulation(value) {
   return new Intl.NumberFormat("en").format(value || 0);
 }
@@ -69,8 +83,12 @@ function getStatusTone(status) {
     return "rgba(52, 211, 153, 0.86)";
   }
 
-  if (status === "Visa on arrival" || status === "eVisa") {
+  if (status === "Visa on arrival" || status === "ETA" || status === "eVisa") {
     return "rgba(250, 204, 21, 0.86)";
+  }
+
+  if (status === "No admission") {
+    return "rgba(185, 28, 28, 0.9)";
   }
 
   if (status === "Passport selected") {
@@ -165,7 +183,9 @@ function App() {
       try {
         const response = await fetch("/api/countries");
         if (!response.ok) {
-          throw new Error("Unable to load countries.");
+          throw new Error(
+            await getApiErrorMessage(response, "Unable to load countries.")
+          );
         }
 
         const payload = await response.json();
@@ -627,7 +647,9 @@ function App() {
         });
         const response = await fetch(`/api/visa?${params.toString()}`);
         if (!response.ok) {
-          throw new Error("Unable to load visa details.");
+          throw new Error(
+            await getApiErrorMessage(response, "Unable to load visa details.")
+          );
         }
 
         const payload = await response.json();
@@ -756,7 +778,9 @@ function App() {
     passportCountry?.mobilitySummary || {
       visaFree: 0,
       visaOnArrival: 0,
+      eta: 0,
       eVisa: 0,
+      noAdmission: 0,
       visaRequired: 0
     };
 
@@ -983,18 +1007,9 @@ function App() {
                   </h2>
                   <span
                     className="status-pill"
-                    style={{
-                      background: getStatusTone(
-                        visaInfo.requirement.simplified?.tourism.allowed === "yes"
-                          ? "Visa-free"
-                          : visaInfo.requirement.simplified?.tourism.allowed === "no"
-                            ? "Visa required"
-                            : "Unknown"
-                      )
-                    }}
+                    style={{ background: getStatusTone(visaInfo.requirement.status) }}
                   >
-                    Tourism:{" "}
-                    {humanizeDecision(visaInfo.requirement.simplified?.tourism.allowed)}
+                    {visaInfo.requirement.status}
                   </span>
                 </div>
 
@@ -1011,9 +1026,9 @@ function App() {
                   <div>
                     <span>Tourism stay</span>
                     <strong>
-                      {visaInfo.requirement.simplified?.tourism.maxStayDays != null
-                        ? `${visaInfo.requirement.simplified.tourism.maxStayDays} days`
-                        : "Unknown"}
+                        {visaInfo.requirement.simplified?.tourism.maxStayDays != null
+                          ? `${visaInfo.requirement.simplified.tourism.maxStayDays} days`
+                          : "Unknown"}
                     </strong>
                   </div>
                   <div>
@@ -1069,7 +1084,9 @@ function App() {
               </div>
               <div>
                 <span>Arrival</span>
-                <strong>{accessSummary.visaOnArrival + accessSummary.eVisa}</strong>
+                <strong>
+                  {accessSummary.visaOnArrival + accessSummary.eta + accessSummary.eVisa}
+                </strong>
               </div>
               <div>
                 <span>Required</span>
