@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { getStatusLabel, getStrengthSummary } from "./lib/visa";
+import { CountryPanel, HeroPanel } from "./components/CountryPanel";
+import { RouteRail } from "./components/RouteRail";
+import { SearchBar } from "./components/SearchBar";
+import { useVisaDataset } from "./hooks/useVisaDataset";
+import { getApiErrorMessage } from "./lib/api";
+import { normalizeCountrySearch } from "./lib/countries";
+import { getStrengthSummary } from "./lib/visa";
 
-const GEO_URL = "/countries.geo.json";
 const MAX_GLOBE_ZOOM = 6;
+const RECENT_ROUTES_STORAGE_KEY = "visa-visualiser-recent-routes";
+const initialRoute = { passport: "", departure: "", destination: "" };
+const initialInputState = { passport: "", departure: "", destination: "" };
 
 const MAP_STYLE = {
   version: 8,
@@ -14,47 +22,11 @@ const MAP_STYLE = {
       id: "background",
       type: "background",
       paint: {
-        "background-color": "#072a0e"//"#07111f"
+        "background-color": "#072a0e"
       }
     }
   ]
 };
-
-const initialRoute = { passport: "", departure: "", destination: "" };
-const initialInputState = { passport: "", departure: "", destination: "" };
-
-async function getApiErrorMessage(response, fallbackMessage) {
-  try {
-    const payload = await response.json();
-
-    if (payload?.error) {
-      return payload.error;
-    }
-  } catch {
-    // Ignore invalid JSON and fall back to the default message.
-  }
-
-  return fallbackMessage;
-}
-
-function formatPopulation(value) {
-  return new Intl.NumberFormat("en").format(value || 0);
-}
-
-function formatArea(value) {
-  return `${new Intl.NumberFormat("en", {
-    notation: "compact",
-    maximumFractionDigits: 1
-  }).format(value || 0)} km²`;
-}
-
-function formatList(values, emptyLabel = "Not listed") {
-  if (!values?.length) {
-    return emptyLabel;
-  }
-
-  return values.join(", ");
-}
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -69,53 +41,7 @@ function getResponsiveMinGlobeZoom(container) {
   const height = container.clientHeight || 0;
   const longestEdge = Math.max(width, height);
 
-  // Keep the globe framed a little tighter on larger viewports so the sphere edge
-  // stays out of view while preserving a Google Maps-like world scale.
   return clamp(1.85 + Math.max(0, longestEdge - 1100) / 900, 1.85, 2.45);
-}
-
-function normalizeCountrySearch(value) {
-  return value.trim().toLowerCase();
-}
-
-function getStatusTone(status) {
-  if (status === "Visa-free") {
-    return "rgba(52, 211, 153, 0.86)";
-  }
-
-  if (status === "Visa on arrival" || status === "ETA" || status === "eVisa") {
-    return "rgba(250, 204, 21, 0.86)";
-  }
-
-  if (status === "No admission") {
-    return "rgba(185, 28, 28, 0.9)";
-  }
-
-  if (status === "Passport selected") {
-    return "rgba(96, 165, 250, 0.92)";
-  }
-
-  if (status === "Start point") {
-    return "rgba(251, 191, 36, 0.92)";
-  }
-
-  if (status === "Destination selected") {
-    return "rgba(248, 113, 113, 0.92)";
-  }
-
-  return "rgba(251, 113, 133, 0.82)";
-}
-
-function humanizeDecision(value) {
-  if (value === "yes") {
-    return "Yes";
-  }
-
-  if (value === "no") {
-    return "No";
-  }
-
-  return "Unknown";
 }
 
 function buildCountryFeatureCollection(countryGeoJson, route) {
@@ -139,95 +65,43 @@ function buildCountryFeatureCollection(countryGeoJson, route) {
   };
 }
 
+function loadRecentRoutes() {
+  const raw = window.localStorage.getItem(RECENT_ROUTES_STORAGE_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+
+    return parsed.map((item) => ({
+      passport: item.passport || item.origin || "",
+      departure: item.departure || "",
+      destination: item.destination || "",
+      status: item.status || ""
+    }));
+  } catch {
+    return [];
+  }
+}
+
 function App() {
   const [route, setRoute] = useState(initialRoute);
   const [inputs, setInputs] = useState(initialInputState);
-  const [countries, setCountries] = useState([]);
-  const [countriesLoading, setCountriesLoading] = useState(true);
-  const [countriesError, setCountriesError] = useState("");
-  const [countryGeoJson, setCountryGeoJson] = useState(null);
   const [mapReady, setMapReady] = useState(false);
   const [hoveredCountryCode, setHoveredCountryCode] = useState("");
   const [pinnedCountryCode, setPinnedCountryCode] = useState("");
   const [visaInfo, setVisaInfo] = useState(null);
   const [visaLoading, setVisaLoading] = useState(false);
   const [visaError, setVisaError] = useState("");
-  const [recentRoutes, setRecentRoutes] = useState(() => {
-    const raw = window.localStorage.getItem("visa-visualiser-recent-routes");
-    if (!raw) {
-      return [];
-    }
+  const [recentRoutes, setRecentRoutes] = useState(loadRecentRoutes);
 
-    try {
-      const parsed = JSON.parse(raw);
-
-      return parsed.map((item) => ({
-        passport: item.passport || item.origin || "",
-        departure: item.departure || "",
-        destination: item.destination || "",
-        status: item.status || ""
-      }));
-    } catch {
-      return [];
-    }
-  });
+  const { countries, countriesLoading, countriesError, countryGeoJson } =
+    useVisaDataset();
 
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const minZoomRef = useRef(2.05);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadCountries() {
-      try {
-        const response = await fetch("/api/countries");
-        if (!response.ok) {
-          throw new Error(
-            await getApiErrorMessage(response, "Unable to load countries.")
-          );
-        }
-
-        const payload = await response.json();
-        if (!cancelled) {
-          setCountries(payload.countries);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setCountriesError(error.message);
-        }
-      } finally {
-        if (!cancelled) {
-          setCountriesLoading(false);
-        }
-      }
-    }
-
-    async function loadCountryGeoJson() {
-      try {
-        const response = await fetch(GEO_URL);
-        if (!response.ok) {
-          throw new Error("Unable to load world boundaries.");
-        }
-
-        const payload = await response.json();
-        if (!cancelled) {
-          setCountryGeoJson(payload);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setCountriesError(error.message);
-        }
-      }
-    }
-
-    loadCountries();
-    loadCountryGeoJson();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const countriesByCode = useMemo(
     () => new Map(countries.map((country) => [country.code, country])),
@@ -316,8 +190,10 @@ function App() {
 
     mapRef.current = map;
     map.scrollZoom.disable();
-
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "bottom-right");
+    map.addControl(
+      new maplibregl.NavigationControl({ visualizePitch: true }),
+      "bottom-right"
+    );
 
     const canvasContainer = map.getCanvasContainer();
     const handleWheel = (event) => {
@@ -413,14 +289,14 @@ function App() {
         }
       });
 
-        map.addLayer({
-          id: "country-base-fill",
-          type: "fill",
-          source: "countries",
-          paint: {
+      map.addLayer({
+        id: "country-base-fill",
+        type: "fill",
+        source: "countries",
+        paint: {
           "fill-color": "rgba(136, 157, 184, 0.28)"
-          }
-        });
+        }
+      });
 
       map.addLayer({
         id: "country-selected-fill",
@@ -446,15 +322,7 @@ function App() {
         source: "countries",
         paint: {
           "line-color": "rgba(214, 226, 242, 0.72)",
-          "line-width": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            1,
-            0.5,
-            5,
-            1.4
-          ]
+          "line-width": ["interpolate", ["linear"], ["zoom"], 1, 0.5, 5, 1.4]
         }
       });
 
@@ -500,17 +368,7 @@ function App() {
         layout: {
           "text-field": ["get", "name"],
           "text-font": ["Open Sans Regular"],
-          "text-size": [
-            "interpolate",
-            ["linear"],
-            ["zoom"],
-            1.4,
-            9,
-            3,
-            11,
-            5,
-            13
-          ],
+          "text-size": ["interpolate", ["linear"], ["zoom"], 1.4, 9, 3, 11, 5, 13],
           "text-letter-spacing": 0.03,
           "text-max-width": 8,
           "text-allow-overlap": false
@@ -659,8 +517,7 @@ function App() {
             const next = [
               {
                 passport: payload.origin.name,
-                departure:
-                  countriesByCode.get(route.departure)?.name || "Not set",
+                departure: countriesByCode.get(route.departure)?.name || "Not set",
                 destination: payload.destination.name,
                 status: payload.requirement.status
               },
@@ -674,7 +531,7 @@ function App() {
             ].slice(0, 5);
 
             window.localStorage.setItem(
-              "visa-visualiser-recent-routes",
+              RECENT_ROUTES_STORAGE_KEY,
               JSON.stringify(next)
             );
 
@@ -757,6 +614,7 @@ function App() {
       inputs[field],
       field === "passport" ? supportedPassportsByName : countriesByName
     );
+
     if (country) {
       updateField(field, country);
     }
@@ -790,350 +648,61 @@ function App() {
       <div className="map-vignette" />
 
       <div className="hud-layer">
-        <header className="search-bar">
-          <div className="brand-chip">
-            <span className="eyebrow">Visa map</span>
-            <strong>Route intelligence</strong>
-          </div>
-
-          {["passport", "departure", "destination"].map((field) => (
-            <label key={field} className="search-field">
-              <span className="search-label">
-                {field === "passport"
-                  ? "Passport held"
-                  : field === "departure"
-                    ? "Starting from"
-                    : "Destination"}
-              </span>
-              {field === "passport" ? (
-                <select
-                  value={route.passport}
-                  onChange={(event) => {
-                    const country = countriesByCode.get(event.target.value) || null;
-
-                    if (country) {
-                      updateField("passport", country);
-                    } else {
-                      clearField("passport");
-                    }
-                  }}
-                  disabled={countriesLoading}
-                >
-                  <option value="">Select a passport</option>
-                  {supportedPassportCountries.map((country) => (
-                    <option key={`passport-${country.code}`} value={country.code}>
-                      {country.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <>
-                  <input
-                    list={`${field}-options`}
-                    value={inputs[field]}
-                    onChange={(event) =>
-                      setInputs((current) => ({
-                        ...current,
-                        [field]: event.target.value
-                      }))
-                    }
-                    onBlur={() => applyInput(field)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        applyInput(field);
-                      }
-                    }}
-                    placeholder={field === "departure" ? "United Arab Emirates" : "Japan"}
-                    disabled={countriesLoading}
-                  />
-                  <datalist id={`${field}-options`}>
-                    {countries.map((country, index) => (
-                      <option
-                        key={`${field}-${country.code || country.name}-${index}`}
-                        value={country.name}
-                      />
-                    ))}
-                  </datalist>
-                </>
-              )}
-            </label>
-          ))}
-        </header>
-
-        {!activeCountry ? (
-          <section className="hero-panel">
-            <p className="eyebrow">Map-first workspace</p>
-            <h1>Explore visa access on a living globe.</h1>
-            <p>
-              Hover a country to inspect it, click to keep its details open, and use map
-              clicks to set the start point first and the destination second.
-            </p>
-          </section>
-        ) : null}
+        <SearchBar
+          route={route}
+          inputs={inputs}
+          countries={countries}
+          countriesByCode={countriesByCode}
+          supportedPassportCountries={supportedPassportCountries}
+          countriesLoading={countriesLoading}
+          onPassportChange={(country) => updateField("passport", country)}
+          onInputChange={(field, value) =>
+            setInputs((current) => ({
+              ...current,
+              [field]: value
+            }))
+          }
+          onApplyInput={applyInput}
+          onClearField={clearField}
+        />
 
         {activeCountry ? (
-          <section className="hover-panel">
-            <p className="panel-kicker">Country brief</p>
-            <div className="panel-header">
-                <h2>
-                  <span className="flag">{activeCountry.flag}</span>
-                  {activeCountry.name}
-                </h2>
-                <span
-                  className="status-pill"
-                  style={{ background: getStatusTone(activeStatus) }}
-                >
-                  {getStatusLabel(activeStatus)}
-                </span>
-            </div>
+          <CountryPanel
+            country={activeCountry}
+            status={activeStatus}
+            onUseAsDeparture={() => updateField("departure", activeCountry)}
+            onUseAsDestination={() => updateField("destination", activeCountry)}
+          />
+        ) : (
+          <HeroPanel />
+        )}
 
-            <div className="detail-grid">
-                <div>
-                  <span>Country code</span>
-                  <strong>{activeCountry.code}</strong>
-                </div>
-                <div>
-                  <span>Capital</span>
-                  <strong>{activeCountry.capital}</strong>
-                </div>
-                <div>
-                  <span>Region</span>
-                  <strong>{activeCountry.subregion || activeCountry.region}</strong>
-                </div>
-                <div>
-                  <span>Population</span>
-                  <strong>{formatPopulation(activeCountry.population)}</strong>
-                </div>
-                <div>
-                  <span>Area</span>
-                  <strong>{formatArea(activeCountry.area)}</strong>
-                </div>
-                <div>
-                  <span>Languages</span>
-                  <strong>
-                    {formatList(activeCountry.languages?.map((language) => language.name))}
-                  </strong>
-                </div>
-                <div>
-                  <span>Currencies</span>
-                  <strong>
-                    {formatList(
-                      activeCountry.currencies?.map((currency) =>
-                        currency.symbol
-                          ? `${currency.name} (${currency.symbol})`
-                          : currency.name
-                      )
-                    )}
-                  </strong>
-                </div>
-                <div>
-                  <span>Passport rating</span>
-                  <strong>{activeCountry.passportStrength}</strong>
-                </div>
-                <div>
-                  <span>Landlocked</span>
-                  <strong>{activeCountry.landlocked ? "Yes" : "No"}</strong>
-                </div>
-            </div>
+        <RouteRail
+          route={route}
+          departureCountry={departureCountry}
+          destinationCountry={destinationCountry}
+          passportCountry={passportCountry}
+          visaInfo={visaInfo}
+          visaLoading={visaLoading}
+          visaError={visaError}
+          onClearField={clearField}
+          accessSummary={accessSummary}
+          strengthSummary={strengthSummary}
+          recentRoutes={recentRoutes}
+          onSelectRecentRoute={(item) => {
+            const passport = resolveCountry(item.passport);
+            const departure = resolveCountry(item.departure);
+            const destination = resolveCountry(item.destination);
 
-            <div className="mini-stats">
-                <div>
-                  <span>Visa-free</span>
-                  <strong>{activeCountry.mobilitySummary?.visaFree || 0}</strong>
-                </div>
-                <div>
-                  <span>Arrival</span>
-                  <strong>
-                    {(activeCountry.mobilitySummary?.visaOnArrival || 0) +
-                      (activeCountry.mobilitySummary?.eVisa || 0)}
-                  </strong>
-                </div>
-                <div>
-                  <span>Required</span>
-                  <strong>{activeCountry.mobilitySummary?.visaRequired || 0}</strong>
-                </div>
-            </div>
-
-            <div className="panel-actions">
-              <button type="button" onClick={() => updateField("departure", activeCountry)}>
-                Use as start
-              </button>
-              <button
-                type="button"
-                onClick={() => updateField("destination", activeCountry)}
-              >
-                Use as destination
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        <aside className="route-rail">
-          <section className="panel-card">
-            <p className="panel-kicker">Current route</p>
-            <div className="route-tokens">
-              <span>
-                {departureCountry?.name || "Start"}
-                {departureCountry ? (
-                  <button type="button" onClick={() => clearField("departure")}>
-                    Clear
-                  </button>
-                ) : null}
-              </span>
-              <span>
-                {destinationCountry?.name || "Destination"}
-                {destinationCountry ? (
-                  <button type="button" onClick={() => clearField("destination")}>
-                    Clear
-                  </button>
-                ) : null}
-              </span>
-            </div>
-
-            {!route.passport || !route.departure || !route.destination ? (
-              <div className="empty-state">
-                Select a passport, then choose both a start and destination country.
-              </div>
-            ) : visaLoading ? (
-              <div className="empty-state">Loading visa guidance...</div>
-            ) : visaError ? (
-              <div className="empty-state">{visaError}</div>
-            ) : visaInfo ? (
-              <div className="route-content">
-                <div className="panel-header">
-                  <h2>
-                    {departureCountry?.name || "Start"} to{" "}
-                    {destinationCountry?.name || visaInfo.destination.name}
-                  </h2>
-                  <span
-                    className="status-pill"
-                    style={{ background: getStatusTone(visaInfo.requirement.status) }}
-                  >
-                    {visaInfo.requirement.status}
-                  </span>
-                </div>
-
-                <p className="route-copy">
-                  {visaInfo.requirement.simplified?.tourism.note ||
-                    visaInfo.requirement.conditions}
-                </p>
-
-                <div className="detail-grid">
-                  <div>
-                    <span>Passport held</span>
-                    <strong>{passportCountry?.name || "Not set"}</strong>
-                  </div>
-                  <div>
-                    <span>Tourism stay</span>
-                    <strong>
-                        {visaInfo.requirement.simplified?.tourism.maxStayDays != null
-                          ? `${visaInfo.requirement.simplified.tourism.maxStayDays} days`
-                          : "Unknown"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Confidence</span>
-                    <strong>{visaInfo.requirement.routeMeta?.confidence || "n/a"}</strong>
-                  </div>
-                  <div>
-                    <span>Study path</span>
-                    <strong>
-                      {humanizeDecision(
-                        visaInfo.requirement.simplified?.study.pathExists
-                      )}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Work path</span>
-                    <strong>
-                      {humanizeDecision(
-                        visaInfo.requirement.simplified?.work.pathExists
-                      )}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Match type</span>
-                    <strong>{visaInfo.requirement.routeMeta?.matchType || "n/a"}</strong>
-                  </div>
-                  <div>
-                    <span>Last checked</span>
-                    <strong>
-                      {visaInfo.requirement.simplified?.lastChecked || "Unknown"}
-                    </strong>
-                  </div>
-                </div>
-
-                <a
-                  className="official-link"
-                  href={visaInfo.requirement.simplified?.sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open source guidance
-                </a>
-              </div>
-            ) : null}
-          </section>
-
-          <section className="panel-card">
-            <p className="panel-kicker">Passport access snapshot</p>
-            <div className="summary-grid">
-              <div>
-                <span>Visa-free</span>
-                <strong>{accessSummary.visaFree}</strong>
-              </div>
-              <div>
-                <span>Arrival</span>
-                <strong>
-                  {accessSummary.visaOnArrival + accessSummary.eta + accessSummary.eVisa}
-                </strong>
-              </div>
-              <div>
-                <span>Required</span>
-                <strong>{accessSummary.visaRequired}</strong>
-              </div>
-              <div>
-                <span>Rating</span>
-                <strong>{strengthSummary.label}</strong>
-              </div>
-            </div>
-          </section>
-
-          <section className="panel-card">
-            <p className="panel-kicker">Recent route checks</p>
-            {recentRoutes.length ? (
-              <div className="recent-routes">
-                {recentRoutes.map((item, index) => (
-                  <button
-                    key={`${item.passport || "unknown"}-${item.destination || "unknown"}-${index}`}
-                    className="recent-route"
-                    onClick={() => {
-                      const passport = resolveCountry(item.passport);
-                      const departure = resolveCountry(item.departure);
-                      const destination = resolveCountry(item.destination);
-
-                      if (passport && destination) {
-                        setRoute({
-                          passport: passport.code,
-                          departure: departure?.code || "",
-                          destination: destination.code
-                        });
-                      }
-                    }}
-                    >
-                    <span>{item.departure || "Start not set"}</span>
-                    <span>{item.destination || "Unknown destination"}</span>
-                    <strong>{item.status}</strong>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="empty-state">
-                Your last few route checks will appear here.
-              </div>
-            )}
-          </section>
-        </aside>
+            if (passport && destination) {
+              setRoute({
+                passport: passport.code,
+                departure: departure?.code || "",
+                destination: destination.code
+              });
+            }
+          }}
+        />
 
         {countriesError ? <div className="floating-alert">{countriesError}</div> : null}
       </div>
